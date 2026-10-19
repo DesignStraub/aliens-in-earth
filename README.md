@@ -47,3 +47,7 @@ Oder im Terminal:
 ## Entwickler-Tests
     Godot --headless --path . -- --autotest   # KI gegen KI, druckt Statistiken
     Godot --path . -- --uitest                # skriptet Spielerbefehle, speichert Screenshots
+
+## Lizenz
+Open Source unter der [MIT-Lizenz](LICENSE): Jeder darf das Spiel und den Code frei verwenden, verändern, weitergeben und auch kommerziell nutzen.
+Mitmachen ist willkommen – Issues und Pull Requests gern gesehen.
