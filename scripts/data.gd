@@ -16,15 +16,15 @@ const RES_COLORS := {"food": Color("e05050"), "wood": Color("a0703a"), "gold": C
 const RES_KIND := {"food": "berry", "wood": "tree", "gold": "gold", "stone": "stone"}
 
 const AGES := [
-	{"name": "Dunkle Zeit", "cost": {}, "time": 0.0},
-	{"name": "Feudalzeit", "cost": {"food": 500}, "time": 35.0},
-	{"name": "Burgzeit", "cost": {"food": 800, "gold": 200}, "time": 50.0},
-	{"name": "Imperialzeit", "cost": {"food": 1000, "gold": 800}, "time": 65.0},
-	{"name": "Moderne", "cost": {"food": 1500, "gold": 1200, "stone": 300}, "time": 80.0},
+	{"name": "Funkenzeit", "cost": {}, "time": 0.0},
+	{"name": "Bannerzeit", "cost": {"food": 500}, "time": 35.0},
+	{"name": "Bastionszeit", "cost": {"food": 800, "gold": 200}, "time": 50.0},
+	{"name": "Kronenzeit", "cost": {"food": 1000, "gold": 800}, "time": 65.0},
+	{"name": "Sternenzeit", "cost": {"food": 1500, "gold": 1200, "stone": 300}, "time": 80.0},
 ]
 
-# Je Zeitalter über dem Freischalt-Zeitalter steigt eine Einheit eine Stufe auf.
-const TIER_PREFIX := ["", "Veteran-", "Elite-", "Meister-", "Hightech-"]
+# Je Zeitalter über dem Freischalt-Zeitalter steigt eine Einheit einen Rang auf (II, III, …).
+const TIER_SUFFIX := ["", " II", " III", " IV", " V"]
 
 # range 0 = Nahkampf. Werte in Kacheln bzw. Sekunden.
 const UNITS := {
@@ -77,15 +77,15 @@ const FACTIONS := {
 }
 
 const BUILDINGS := {
-	"town_center": {"name": "Dorfzentrum", "size": 3, "hp": 2400.0, "cost": {"wood": 275, "stone": 100}, "time": 90.0, "age": 0, "pop": 10, "drop": ["food", "wood", "gold", "stone"], "trains": ["villager"], "attack": {"atk": 5.0, "range": 6.0, "cd": 2.0}},
+	"town_center": {"name": "Hauptsitz", "size": 3, "hp": 2400.0, "cost": {"wood": 275, "stone": 100}, "time": 90.0, "age": 0, "pop": 10, "drop": ["food", "wood", "gold", "stone"], "trains": ["villager"], "attack": {"atk": 5.0, "range": 6.0, "cd": 2.0}},
 	"house": {"name": "Haus", "size": 2, "hp": 550.0, "cost": {"wood": 25}, "time": 15.0, "age": 0, "pop": 5},
-	"mill": {"name": "Mühle", "size": 2, "hp": 600.0, "cost": {"wood": 100}, "time": 20.0, "age": 0, "drop": ["food"]},
-	"camp": {"name": "Lager", "size": 2, "hp": 600.0, "cost": {"wood": 100}, "time": 20.0, "age": 0, "drop": ["wood", "gold", "stone"]},
+	"mill": {"name": "Kornspeicher", "size": 2, "hp": 600.0, "cost": {"wood": 100}, "time": 20.0, "age": 0, "drop": ["food"]},
+	"camp": {"name": "Sammellager", "size": 2, "hp": 600.0, "cost": {"wood": 100}, "time": 20.0, "age": 0, "drop": ["wood", "gold", "stone"]},
 	"farm": {"name": "Farm", "size": 2, "hp": 300.0, "cost": {"wood": 60}, "time": 10.0, "age": 0, "walkable": true, "food": 300.0},
 	"barracks": {"name": "Kaserne", "size": 3, "hp": 1200.0, "cost": {"wood": 175}, "time": 35.0, "age": 0, "trains": ["spear"]},
-	"range": {"name": "Schießstand", "size": 3, "hp": 1200.0, "cost": {"wood": 175}, "time": 35.0, "age": 1, "trains": ["archer"]},
-	"stable": {"name": "Stall", "size": 3, "hp": 1200.0, "cost": {"wood": 175}, "time": 35.0, "age": 2, "trains": ["cavalry"]},
-	"workshop": {"name": "Werkstatt", "size": 3, "hp": 1500.0, "cost": {"wood": 200, "gold": 50}, "time": 40.0, "age": 3, "trains": ["siege"]},
+	"range": {"name": "Schützenhof", "size": 3, "hp": 1200.0, "cost": {"wood": 175}, "time": 35.0, "age": 1, "trains": ["archer"]},
+	"stable": {"name": "Reiterhof", "size": 3, "hp": 1200.0, "cost": {"wood": 175}, "time": 35.0, "age": 2, "trains": ["cavalry"]},
+	"workshop": {"name": "Kriegswerk", "size": 3, "hp": 1500.0, "cost": {"wood": 200, "gold": 50}, "time": 40.0, "age": 3, "trains": ["siege"]},
 	"palisade": {"name": "Palisade", "size": 1, "hp": 250.0, "cost": {"wood": 3}, "time": 4.0, "age": 0, "wall": true},
 	"wall": {"name": "Steinmauer", "size": 1, "hp": 1800.0, "cost": {"stone": 5}, "time": 6.0, "age": 1, "wall": true},
 	"gate": {"name": "Tor", "size": 1, "hp": 1500.0, "cost": {"stone": 20}, "time": 10.0, "age": 1, "wall": true, "gate": true},
@@ -106,23 +106,23 @@ const DIFFICULTY := [
 
 # Forschung: "at" = Gebäude, in dem geforscht wird; "req" = vorherige Technologie
 const TECHS := {
-	"loom": {"name": "Webstuhl", "desc": "Arbeiter +15 LP und +1 Rüstung", "cost": {"gold": 50}, "time": 20.0, "age": 0, "at": "town_center"},
-	"wheelbarrow": {"name": "Schubkarre", "desc": "Arbeiter +10% Tempo, tragen 5 mehr", "cost": {"food": 175, "wood": 50}, "time": 30.0, "age": 1, "at": "town_center"},
-	"handcart": {"name": "Handkarren", "desc": "Arbeiter +10% Tempo, tragen 5 mehr", "cost": {"food": 300, "wood": 200}, "time": 40.0, "age": 2, "at": "town_center", "req": "wheelbarrow"},
-	"masonry": {"name": "Mauerwerk", "desc": "Alle Gebäude und Mauern +20% LP", "cost": {"wood": 175, "stone": 150}, "time": 40.0, "age": 2, "at": "town_center"},
-	"tower_arrows": {"name": "Turmgeschütze", "desc": "Türme und Dorfzentrum +3 Angriff", "cost": {"food": 200, "wood": 150}, "time": 35.0, "age": 2, "at": "town_center"},
-	"gunpowder": {"name": "Schießpulver", "desc": "Alle Militäreinheiten +20% Angriff", "cost": {"food": 400, "gold": 400}, "time": 60.0, "age": 4, "at": "town_center"},
-	"double_axe": {"name": "Doppelaxt", "desc": "Holz sammeln +20%", "cost": {"food": 100, "wood": 50}, "time": 20.0, "age": 1, "at": "camp"},
-	"bow_saw": {"name": "Bügelsäge", "desc": "Holz sammeln +20%", "cost": {"food": 150, "wood": 100}, "time": 30.0, "age": 2, "at": "camp", "req": "double_axe"},
-	"gold_mining": {"name": "Goldbergbau", "desc": "Gold sammeln +20%", "cost": {"food": 100, "wood": 75}, "time": 25.0, "age": 1, "at": "camp"},
-	"stone_mining": {"name": "Steinbruch", "desc": "Stein sammeln +20%", "cost": {"food": 100, "wood": 75}, "time": 25.0, "age": 1, "at": "camp"},
-	"horse_collar": {"name": "Schweres Joch", "desc": "Farmen +25% Ertrag, neue Farmen +150 Nahrung", "cost": {"food": 75, "wood": 75}, "time": 20.0, "age": 1, "at": "mill"},
-	"crop_rotation": {"name": "Fruchtwechsel", "desc": "Farmen +25% Ertrag, neue Farmen +150 Nahrung", "cost": {"food": 250, "wood": 200}, "time": 40.0, "age": 3, "at": "mill", "req": "horse_collar"},
-	"forging": {"name": "Schmiedekunst", "desc": "Nahkampfeinheiten +2 Angriff", "cost": {"food": 150}, "time": 30.0, "age": 1, "at": "barracks"},
-	"scale_armor": {"name": "Schuppenpanzer", "desc": "Alle Militäreinheiten +1 Rüstung", "cost": {"food": 150, "gold": 100}, "time": 35.0, "age": 2, "at": "barracks"},
-	"fletching": {"name": "Befiederung", "desc": "Schützen +1 Angriff und +1 Reichweite", "cost": {"food": 100, "wood": 50}, "time": 30.0, "age": 1, "at": "range"},
-	"barding": {"name": "Rossharnisch", "desc": "Reiter +25% LP", "cost": {"food": 150, "gold": 100}, "time": 35.0, "age": 2, "at": "stable"},
-	"ballistics": {"name": "Ballistik", "desc": "Belagerung +25% Angriff und +1 Reichweite", "cost": {"wood": 300, "gold": 175}, "time": 45.0, "age": 3, "at": "workshop"},
+	"loom": {"name": "Zähe Kittel", "desc": "Arbeiter +15 LP und +1 Rüstung", "cost": {"gold": 50}, "time": 20.0, "age": 0, "at": "town_center"},
+	"wheelbarrow": {"name": "Tragekiepe", "desc": "Arbeiter +10% Tempo, tragen 5 mehr", "cost": {"food": 175, "wood": 50}, "time": 30.0, "age": 1, "at": "town_center"},
+	"handcart": {"name": "Zugschlitten", "desc": "Arbeiter +10% Tempo, tragen 5 mehr", "cost": {"food": 300, "wood": 200}, "time": 40.0, "age": 2, "at": "town_center", "req": "wheelbarrow"},
+	"masonry": {"name": "Bollwerkbau", "desc": "Alle Gebäude und Mauern +20% LP", "cost": {"wood": 175, "stone": 150}, "time": 40.0, "age": 2, "at": "town_center"},
+	"tower_arrows": {"name": "Brennende Bolzen", "desc": "Türme und Hauptsitz +3 Angriff", "cost": {"food": 200, "wood": 150}, "time": 35.0, "age": 2, "at": "town_center"},
+	"gunpowder": {"name": "Kometenstaub", "desc": "Alle Militäreinheiten +20% Angriff", "cost": {"food": 400, "gold": 400}, "time": 60.0, "age": 4, "at": "town_center"},
+	"double_axe": {"name": "Gezahnte Klinge", "desc": "Holz sammeln +20%", "cost": {"food": 100, "wood": 50}, "time": 20.0, "age": 1, "at": "camp"},
+	"bow_saw": {"name": "Rankensäge", "desc": "Holz sammeln +20%", "cost": {"food": 150, "wood": 100}, "time": 30.0, "age": 2, "at": "camp", "req": "double_axe"},
+	"gold_mining": {"name": "Glanzader", "desc": "Gold sammeln +20%", "cost": {"food": 100, "wood": 75}, "time": 25.0, "age": 1, "at": "camp"},
+	"stone_mining": {"name": "Felsspalter", "desc": "Stein sammeln +20%", "cost": {"food": 100, "wood": 75}, "time": 25.0, "age": 1, "at": "camp"},
+	"horse_collar": {"name": "Gute Saat", "desc": "Farmen +25% Ertrag, neue Farmen +150 Nahrung", "cost": {"food": 75, "wood": 75}, "time": 20.0, "age": 1, "at": "mill"},
+	"crop_rotation": {"name": "Tiefe Wurzeln", "desc": "Farmen +25% Ertrag, neue Farmen +150 Nahrung", "cost": {"food": 250, "wood": 200}, "time": 40.0, "age": 3, "at": "mill", "req": "horse_collar"},
+	"forging": {"name": "Glutschmiede", "desc": "Nahkampfeinheiten +2 Angriff", "cost": {"food": 150}, "time": 30.0, "age": 1, "at": "barracks"},
+	"scale_armor": {"name": "Schildplatten", "desc": "Alle Militäreinheiten +1 Rüstung", "cost": {"food": 150, "gold": 100}, "time": 35.0, "age": 2, "at": "barracks"},
+	"fletching": {"name": "Leichte Schäfte", "desc": "Schützen +1 Angriff und +1 Reichweite", "cost": {"food": 100, "wood": 50}, "time": 30.0, "age": 1, "at": "range"},
+	"barding": {"name": "Gepanzerte Sättel", "desc": "Reiter +25% LP", "cost": {"food": 150, "gold": 100}, "time": 35.0, "age": 2, "at": "stable"},
+	"ballistics": {"name": "Zielrohre", "desc": "Belagerung +25% Angriff und +1 Reichweite", "cost": {"wood": 300, "gold": 175}, "time": 45.0, "age": 3, "at": "workshop"},
 }
 
 ## Konfiguration bzw. Spielstand, der nach einem Szenen-Neustart geladen wird.
@@ -138,7 +138,7 @@ func unit_tier(kind: String, age: int) -> int:
 
 
 func unit_name(kind: String, faction: String, age: int) -> String:
-	return TIER_PREFIX[unit_tier(kind, age)] + str(FACTIONS[faction]["units"][kind])
+	return str(FACTIONS[faction]["units"][kind]) + TIER_SUFFIX[unit_tier(kind, age)]
 
 
 func unit_stats(kind: String, faction: String, age: int, techs: Dictionary = {}) -> Dictionary:

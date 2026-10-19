@@ -365,7 +365,7 @@ func _train_army(p: Dictionary, vills: Array, army: Array) -> void:
 	for k in avail:
 		total_w += float(w[k])
 	var total_own := maxi(1, army.size())
-	# In der Dunklen Zeit nur eine kleine Wache, sonst fehlt Nahrung für den Aufstieg
+	# In der Funkenzeit nur eine kleine Wache, sonst fehlt Nahrung für den Aufstieg
 	if int(p["age"]) == 0 and army.size() >= 5:
 		return
 	for b in world.buildings:

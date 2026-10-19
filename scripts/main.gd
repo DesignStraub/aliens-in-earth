@@ -1113,7 +1113,7 @@ func _process(delta: float) -> void:
 # ---------------------------------------------------------------- Kollision
 
 ## Weiche Kollision: Einheiten dürfen sich berühren, aber nicht ineinander stehen.
-## Wer läuft, drückt Stehende stärker beiseite (wie in AoE).
+## Wer läuft, drückt Stehende stärker beiseite.
 func _separate_units(delta: float) -> void:
 	var grid := {}
 	for u in units:
@@ -1557,7 +1557,7 @@ func _ui_test() -> void:
 				break
 	_place_wall_line("palisade", tc.cell + Vector2i(-6, -6), tc.cell + Vector2i(6, -9))
 	queue_train(tc, "villager")
-	print("Forschung Webstuhl: ", queue_research(tc, "loom"))
+	print("Forschung Zähe Kittel: ", queue_research(tc, "loom"))
 	print("Aufstieg: ", queue_age_up(tc))
 	# zwei Arbeiter zum Holz, einer zu Gold
 	var wood := find_resource_near("tree", tc.cell, 20)

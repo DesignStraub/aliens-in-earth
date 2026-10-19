@@ -243,7 +243,7 @@ func show_title() -> void:
 	top_bar.visible = false
 	bottom_bar.visible = false
 	var vb := _menu_box("KOMETEN & KRONEN")
-	var sub := _label("Säugetiere, Aliens und lebende Pflanzen kämpfen von der Dunklen Zeit bis zur Moderne.", 16)
+	var sub := _label("Säugetiere, Aliens und lebende Pflanzen kämpfen von der Funkenzeit bis zur Sternenzeit.", 16)
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(sub)
 	var col := VBoxContainer.new()
@@ -677,7 +677,7 @@ func _update_info() -> void:
 	if sel.is_empty():
 		info_icon.texture = null
 		info_title.text = Data.FACTIONS[f]["name"]
-		info_body.text = "Linksklick/Ziehen: auswählen  •  Rechtsklick: Befehl\nWASD/Rand: Kamera  •  Mausrad: Zoom\nH: Dorfzentrum  •  Punkt: untätiger Arbeiter\nF5: speichern  •  Esc/F10: Menü"
+		info_body.text = "Linksklick/Ziehen: auswählen  •  Rechtsklick: Befehl\nWASD/Rand: Kamera  •  Mausrad: Zoom\nH: Hauptsitz  •  Punkt: untätiger Arbeiter\nF5: speichern  •  Esc/F10: Menü"
 		return
 	if sel.size() == 1:
 		var e = sel[0]
