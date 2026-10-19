@@ -311,6 +311,84 @@ func tech_icon() -> Texture2D:
 	return tex
 
 
+# ---------------------------------------------------------------- Mauszeiger
+
+const CURSOR_ARROW := [
+	"o...........",
+	"oo..........",
+	"owo.........",
+	"owwo........",
+	"owwwo.......",
+	"owwwwo......",
+	"owwwwwo.....",
+	"owwwwwwo....",
+	"owwwwwwwo...",
+	"owwwwwoooo..",
+	"owwowwo.....",
+	"owo.owwo....",
+	"oo..owwo....",
+	"o....owwo...",
+	".....owwo...",
+	"......oo....",
+]
+# Schwert, Spitze oben links (Hotspot 0,0)
+const CURSOR_SWORD := [
+	"oo..............",
+	"owo.............",
+	".owo............",
+	"..owo...........",
+	"...owo..........",
+	"....owo.........",
+	".....owo.....o..",
+	"......owo...oo..",
+	".......owo.oo...",
+	"........orro....",
+	"........oorro...",
+	".......oo.oro...",
+	"...........oro..",
+	"............oro.",
+	".............oro",
+	"..............oo",
+]
+const CURSOR_PAL := {"o": Color("1a1008"), "w": Color("f4ecd8"), "r": Color("c83a2a")}
+
+
+## Mauszeiger als Bild; size_px = Zielgröße (pixelig hochskaliert).
+func cursor_image(mode: String, faction: String, scale: int) -> Image:
+	var key := "c_%s_%s_%d" % [mode, faction, scale]
+	if _cache.has(key):
+		return _cache[key]
+	var img: Image
+	match mode:
+		"arrow":
+			img = _img_from(CURSOR_ARROW, CURSOR_PAL, 16, 16)
+		"attack":
+			var pal := CURSOR_PAL.duplicate()
+			pal["w"] = Color("e0e0e8")
+			img = _img_from(CURSOR_SWORD, pal, 16, 16)
+		_:
+			# Werkzeug (Axt, Hacke, Korb, Hammer) mit Umriss, Griff unten rechts
+			img = Image.create_empty(16, 16, false, Image.FORMAT_RGBA8)
+			var t: Image = tool_tex(mode, faction).get_image()
+			t.resize(t.get_width() * 2, t.get_height() * 2, Image.INTERPOLATE_NEAREST)
+			var big := Image.create_empty(16, 16, false, Image.FORMAT_RGBA8)
+			big.blit_rect(t, Rect2i(Vector2i.ZERO, t.get_size()), Vector2i(1, 1))
+			var outline := Color("1a1008")
+			for y in 16:
+				for x in 16:
+					if big.get_pixel(x, y).a > 0.5:
+						img.set_pixel(x, y, big.get_pixel(x, y))
+					else:
+						for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+							var n: Vector2i = Vector2i(x, y) + d
+							if n.x >= 0 and n.y >= 0 and n.x < 16 and n.y < 16 and big.get_pixel(n.x, n.y).a > 0.5:
+								img.set_pixel(x, y, outline)
+								break
+	img.resize(16 * scale, 16 * scale, Image.INTERPOLATE_NEAREST)
+	_cache[key] = img
+	return img
+
+
 func tool_tex(tool: String, faction: String) -> Texture2D:
 	var key := "t_%s_%s" % [tool, faction]
 	if _cache.has(key):

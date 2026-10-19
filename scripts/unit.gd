@@ -14,7 +14,10 @@ const WORK_FX := {
 	"hammer": ["build", "dust", Color("c8b890")],
 }
 
+const RADIUS := {"villager": 5.0, "spear": 5.5, "archer": 5.5, "cavalry": 7.5, "siege": 8.0}
+
 var is_building := false
+var radius := 4.5
 var world
 var kind := ""
 var faction := ""
@@ -55,6 +58,7 @@ func setup(w, k: String, pid: int, pos: Vector2) -> void:
 	owner_id = pid
 	position = pos
 	faction = w.players[pid]["faction"]
+	radius = RADIUS.get(kind, 4.5)
 	frames = Art.unit_frames(faction, kind, pid)
 	tex = frames[0]
 	refresh_stats(true)
@@ -90,6 +94,11 @@ func is_military() -> bool:
 func reach() -> float:
 	var r: float = stats["range"]
 	return r * 16.0 if r > 0.0 else 11.0
+
+
+## Am Arbeitsplatz (oder auf den letzten Schritten dorthin) wird nicht geschoben.
+func is_anchored() -> bool:
+	return working or ((state == S.GATHER or state == S.BUILD or state == S.RETURN) and path.size() <= 1)
 
 
 func carry_cap() -> float:
@@ -219,7 +228,7 @@ func _follow(delta: float) -> bool:
 
 
 func _near_rect(r: Rect2i) -> bool:
-	return world.dist_to_rect(position, r) <= 13.0
+	return world.dist_to_rect(position, r) <= 16.0
 
 
 func _idle(delta: float) -> void:
@@ -494,7 +503,7 @@ func _animate_work(delta: float) -> void:
 			var fx: Array = WORK_FX[tool]
 			var hit := position + Vector2(-7 if flip else 7, -4)
 			world.spawn_fx(fx[1], hit, fx[2], true)
-			world.play_sound(fx[0], position, -6.0)
+			world.play_sound(fx[0], position, -9.0)
 
 
 func _tool_angle() -> float:

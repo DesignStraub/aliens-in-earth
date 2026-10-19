@@ -3,6 +3,12 @@ extends Node
 ## Später einfach durch eigene .wav/.ogg ersetzen: streams["name"] = load("res://...").
 
 const RATE := 22050
+const MAX_VOICES := 8
+const BASE_DB := -5.0
+# Mindestabstand je Geräusch (Sekunden); häufige Arbeitsgeräusche seltener
+const COOLDOWN := {"chop": 0.3, "mine": 0.3, "build": 0.3, "gather": 0.4, "farm": 0.4, "melee": 0.12, "arrow": 0.12, "beam": 0.12, "spore": 0.12, "death": 0.15, "train": 0.2}
+# höchstens so viele gleichzeitig
+const MAX_SAME := {"chop": 2, "mine": 2, "build": 2, "gather": 1, "farm": 1, "melee": 3, "arrow": 3, "beam": 3, "spore": 3}
 
 var streams := {}
 var players: Array = []
@@ -13,7 +19,7 @@ var view_rect := Rect2(-1e9, -1e9, 2e9, 2e9)
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	for i in 14:
+	for i in MAX_VOICES:
 		var p := AudioStreamPlayer.new()
 		add_child(p)
 		players.append(p)
@@ -26,13 +32,19 @@ func play(sound: String, pos = null, vol_db := 0.0) -> void:
 	if pos != null and not view_rect.has_point(pos):
 		return
 	var now := Time.get_ticks_msec()
-	if now - int(last.get(sound, -1000)) < 70:
+	if now - int(last.get(sound, -10000)) < int(float(COOLDOWN.get(sound, 0.08)) * 1000.0):
+		return
+	var same := 0
+	for p in players:
+		if p.playing and p.stream == streams[sound]:
+			same += 1
+	if same >= int(MAX_SAME.get(sound, 2)):
 		return
 	last[sound] = now
 	for p in players:
 		if not p.playing:
 			p.stream = streams[sound]
-			p.volume_db = vol_db
+			p.volume_db = vol_db + BASE_DB
 			p.pitch_scale = randf_range(0.93, 1.07)
 			p.play()
 			return

@@ -5,7 +5,7 @@ const PATH := "user://settings.cfg"
 
 var ui_scale := 1.0
 var fullscreen := false
-var volume := 0.8
+var volume := 0.5
 var edge_scroll := true
 var cam_speed := 1.0
 

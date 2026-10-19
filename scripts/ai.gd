@@ -187,7 +187,36 @@ func _want(p: Dictionary) -> Dictionary:
 	return {"food": 0.38, "wood": 0.27, "gold": 0.25, "stone": 0.1}
 
 
+var rebalance_t := 20.0
+
+
+## Bei großem Überschuss einer Ressource ein paar Sammler freistellen.
+func _rebalance(p: Dictionary, vills: Array) -> void:
+	rebalance_t -= think_interval
+	if rebalance_t > 0.0:
+		return
+	rebalance_t = 20.0
+	var r: Dictionary = p["res"]
+	var want := _want(p)
+	var low := ""
+	for k in want:
+		if float(want[k]) > 0.05 and float(r[k]) < 250.0:
+			low = k
+	if low == "":
+		return
+	for k in Data.RES:
+		if k != low and float(r[k]) > 700.0:
+			var freed := 0
+			for v in vills:
+				if v.task_type == k and v.state == UnitScript.S.GATHER and freed < 3:
+					v.state = UnitScript.S.IDLE
+					v.task_type = ""
+					freed += 1
+			return
+
+
 func _assign_gatherers(p: Dictionary, tc, vills: Array) -> void:
+	_rebalance(p, vills)
 	var want := _want(p)
 	var counts := {"food": 0, "wood": 0, "gold": 0, "stone": 0}
 	for v in vills:
@@ -221,6 +250,8 @@ func _send_gather(v, type: String, tc, vills: Array) -> bool:
 		var cost := Data.building_cost("farm", world.players[pid]["faction"])
 		if world.can_afford(pid, cost):
 			var spot := _find_spot("farm", origin, 3.0, 9.0)
+			if spot.x < 0:
+				spot = _find_spot("farm", origin, 6.0, 15.0)
 			if spot.x >= 0:
 				world.pay(pid, cost)
 				var fb = world.place_building("farm", spot, pid, false)
@@ -292,15 +323,18 @@ const TECH_PRIORITY := ["loom", "double_axe", "horse_collar", "wheelbarrow", "go
 
 
 func _research(p: Dictionary, vills: Array) -> void:
-	var reserve := _reserve(p, vills)
+	var reserve := {}
+	for k in _reserve(p, vills):
+		reserve[k] = float(_reserve(p, vills)[k]) * 0.5
 	for tid in TECH_PRIORITY:
 		if not world.tech_available(pid, tid):
+			continue
+		if not _afford_with_reserve(Data.TECHS[tid]["cost"], reserve):
 			continue
 		var at: String = Data.TECHS[tid]["at"]
 		for b in world.buildings:
 			if b.owner_id == pid and b.kind == at and b.built and b.queue.is_empty():
-				if _afford_with_reserve(Data.TECHS[tid]["cost"], reserve):
-					world.queue_research(b, tid)
+				world.queue_research(b, tid)
 				return
 
 

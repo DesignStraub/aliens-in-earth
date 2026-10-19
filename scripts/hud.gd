@@ -464,6 +464,7 @@ func toggle_pause_menu() -> void:
 
 func _open_pause() -> void:
 	get_tree().paused = true
+	world.reset_cursor()
 	var vb := _menu_box("Pause", true)
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 10)

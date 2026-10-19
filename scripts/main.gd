@@ -62,6 +62,7 @@ var wall_start := NONE
 var check_t := 0.0
 var minimap_dirty := true
 var stat_t := 0.0
+var _cursor_key := ""
 
 
 func _ready() -> void:
@@ -83,6 +84,31 @@ func _ready() -> void:
 	elif "--uitest" in args:
 		start_game({"faction": "plants", "opponents": ["aliens"], "teams": "ffa", "map_size": 0, "fog": true, "difficulty": 1})
 		_ui_test()
+	elif "--colltest" in args:
+		start_game({"faction": "aliens", "opponents": ["plants"], "teams": "ffa", "map_size": 0, "fog": false, "difficulty": 1})
+		var tc = buildings[0]
+		var spot: Vector2 = tc.center() + Vector2(0, 70)
+		var group := []
+		for i in 10:
+			group.append(spawn_unit(["spear", "archer", "cavalry", "villager"][i % 4], 0, spot))
+		camera.position = spot
+		camera.zoom = Vector2(6, 6)
+		await get_tree().create_timer(2.0).timeout
+		var md := 1e9
+		for a in group:
+			for b in group:
+				if a != b:
+					md = minf(md, a.position.distance_to(b.position))
+		print("Kleinster Abstand nach 2s: %.1f px" % md)
+		get_viewport().get_texture().get_image().save_png("res://shot_coll.png")
+		var sheet := Image.create_empty(48 * 7, 48, false, Image.FORMAT_RGBA8)
+		sheet.fill(Color("4e8e32"))
+		var i := 0
+		for m in ["arrow", "attack", "axe", "pick", "basket", "hoe", "hammer"]:
+			sheet.blend_rect(Art.cursor_image(m, "aliens", 3), Rect2i(0, 0, 48, 48), Vector2i(i * 48, 0))
+			i += 1
+		sheet.save_png("res://shot_cursors.png")
+		get_tree().quit()
 	elif "--loadtest" in args:
 		_load_save(read_save())
 		await get_tree().create_timer(3.0).timeout
@@ -1057,6 +1083,8 @@ func command_units(list: Array, pos: Vector2) -> void:
 # ---------------------------------------------------------------- Eingabe
 
 func _process(delta: float) -> void:
+	if not autotest:
+		_update_cursor()
 	if not running:
 		return
 	_camera_move(delta)
@@ -1069,6 +1097,7 @@ func _process(delta: float) -> void:
 	if fog_t <= 0.0:
 		fog_t = 0.25
 		_update_fog()
+	_separate_units(delta)
 	check_t -= delta
 	if check_t <= 0.0:
 		check_t = 1.0
@@ -1079,6 +1108,110 @@ func _process(delta: float) -> void:
 		stat_t = -1000.0
 		get_viewport().get_texture().get_image().save_png("res://shot_game.png")
 		get_tree().quit()
+
+
+# ---------------------------------------------------------------- Kollision
+
+## Weiche Kollision: Einheiten dürfen sich berühren, aber nicht ineinander stehen.
+## Wer läuft, drückt Stehende stärker beiseite (wie in AoE).
+func _separate_units(delta: float) -> void:
+	var grid := {}
+	for u in units:
+		var k := to_cell(u.position)
+		if grid.has(k):
+			grid[k].append(u)
+		else:
+			grid[k] = [u]
+	var max_step := 45.0 * delta
+	for u in units:
+		if u.is_anchored():
+			continue  # Arbeitende bleiben am Baum/Busch/Bauplatz verankert
+		var c := to_cell(u.position)
+		var push := Vector2.ZERO
+		var u_moving: bool = not u.path.is_empty()
+		for dy in range(-1, 2):
+			for dx in range(-1, 2):
+				var bucket = grid.get(c + Vector2i(dx, dy))
+				if bucket == null:
+					continue
+				for o in bucket:
+					if o == u:
+						continue
+					var d: Vector2 = u.position - o.position
+					var min_d: float = u.radius + o.radius
+					var l2 := d.length_squared()
+					if l2 >= min_d * min_d:
+						continue
+					var l := sqrt(l2)
+					if l < 0.01:
+						# exakt übereinander: deterministisch auseinanderschieben
+						d = Vector2(1, 0).rotated(float(u.get_instance_id() % 628) / 100.0)
+						l = 1.0
+					var o_moving: bool = not o.path.is_empty()
+					var share := 0.5
+					if o.is_anchored():
+						share = 1.0
+					elif u_moving and not o_moving:
+						share = 0.15
+					elif o_moving and not u_moving:
+						share = 0.85
+					push += d / l * (min_d - l) * share
+		if push == Vector2.ZERO:
+			continue
+		var np: Vector2 = u.position + push.limit_length(max_step)
+		var nc := to_cell(np)
+		if nc == c or not is_solid_for(u.owner_id, nc):
+			u.position = np
+
+
+# ---------------------------------------------------------------- Mauszeiger
+
+func _cursor_mode() -> String:
+	if not running or game_over or human < 0 or place_kind != "" or get_viewport().gui_get_hovered_control() != null:
+		return "arrow"
+	var own := own_selected_units()
+	if own.is_empty():
+		return "arrow"
+	var pos := get_global_mouse_position()
+	var c := to_cell(pos)
+	var eu = unit_at(pos)
+	if eu != null and is_enemy(human, eu.owner_id):
+		return "attack"
+	var b = occ.get(c)
+	if b != null and b.visible and is_enemy(human, b.owner_id):
+		return "attack"
+	var has_vill := false
+	for u in own:
+		if u.kind == "villager":
+			has_vill = true
+			break
+	if not has_vill:
+		return "arrow"
+	if b != null and b.owner_id == human:
+		if b.kind == "farm" and b.built:
+			return "hoe"
+		if not b.built or b.hp < b.max_hp:
+			return "hammer"
+	if resources.has(c) and cell_explored(c):
+		return {"tree": "axe", "gold": "pick", "stone": "pick", "berry": "basket"}[resources[c]["kind"]]
+	return "arrow"
+
+
+func reset_cursor() -> void:
+	_cursor_key = ""
+	var scale := clampi(roundi(get_window().size.y / 900.0 * Settings.ui_scale * 1.25), 1, 5)
+	Input.set_custom_mouse_cursor(Art.cursor_image("arrow", "mammals", scale), Input.CURSOR_ARROW, Vector2.ZERO)
+
+
+func _update_cursor() -> void:
+	var mode := _cursor_mode()
+	var scale := clampi(roundi(get_window().size.y / 900.0 * Settings.ui_scale * 1.25), 1, 5)
+	var fac: String = players[human]["faction"] if human >= 0 and not players.is_empty() else "mammals"
+	var key := "%s_%d_%s" % [mode, scale, fac]
+	if key == _cursor_key:
+		return
+	_cursor_key = key
+	Input.set_custom_mouse_cursor(Art.cursor_image(mode, fac, scale), Input.CURSOR_ARROW, Vector2.ZERO)
 
 
 func _camera_move(delta: float) -> void:
@@ -1398,6 +1531,13 @@ func _print_stats() -> void:
 		for u in units:
 			if u.owner_id == pid:
 				counts[u.kind] = int(counts.get(u.kind, 0)) + 1
+		var st := {}
+		for u in units:
+			if u.owner_id == pid and u.kind == "villager":
+				var key: String = "%s/%s" % [UnitScript.S.keys()[u.state], u.gather_kind]
+				st[key] = int(st.get(key, 0)) + 1
+		if OS.get_cmdline_user_args().has("--debug"):
+			print("      Arbeiter P%d: %s" % [pid, str(st)])
 		var r: Dictionary = p["res"]
 		print("[%4ds] P%d %s %s | N%d H%d G%d S%d | Pop %d/%d | %s | Tech %d" % [int(game_time), pid, p["faction"], Data.AGES[p["age"]]["name"], int(r["food"]), int(r["wood"]), int(r["gold"]), int(r["stone"]), pop(pid), pop_cap(pid), str(counts), p["techs"].size()])
 
