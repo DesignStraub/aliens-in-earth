@@ -67,6 +67,12 @@ var _cursor_key := ""
 
 func _ready() -> void:
 	randomize()
+	if "--cover" in OS.get_cmdline_user_args():
+		get_window().content_scale_mode = Window.CONTENT_SCALE_MODE_DISABLED
+		get_window().content_scale_factor = 1.0
+		get_window().size = Vector2i(1260, 1000)
+		add_child(preload("res://scripts/cover.gd").new())
+		return
 	camera = Camera2D.new()
 	camera.zoom = Vector2(3, 3)
 	add_child(camera)
