@@ -33,13 +33,14 @@ func setup(w, k: String, pid: int, c: Vector2i, complete: bool) -> void:
 	info = Data.BUILDINGS[k]
 	size = info["size"]
 	faction = w.players[pid]["faction"]
-	max_hp = info["hp"]
+	max_hp = Data.building_hp(kind, w.players[pid]["techs"])
 	tex = Art.building_tex(faction, kind, pid)
 	# Ursprung unten links, damit die Y-Sortierung mit Einheiten passt
 	position = Vector2(c.x * 16, (c.y + size) * 16)
 	if info.get("walkable", false):
 		z_index = -1
-	food_left = info.get("food", 0.0)
+	if kind == "farm":
+		food_left = Data.farm_food(w.players[pid]["techs"])
 	if complete:
 		built = true
 		progress = 1.0
@@ -95,6 +96,8 @@ func take_damage(amount: float, attacker) -> void:
 	if hp <= 0.0:
 		world.destroy_building(self)
 		return
+	if attacker != null and world.is_enemy(owner_id, attacker.owner_id):
+		world.notify_attacked(self)
 	world.call_for_help(self, attacker)
 
 
@@ -102,6 +105,8 @@ func current_time() -> float:
 	var item: String = queue[0]
 	if item == "age_up":
 		return Data.AGES[world.players[owner_id]["age"] + 1]["time"]
+	if item.begins_with("tech:"):
+		return Data.TECHS[item.substr(5)]["time"]
 	return Data.UNITS[item]["time"]
 
 
@@ -125,17 +130,22 @@ func _do_queue(delta: float) -> void:
 	queue_t += delta
 	if queue_t < need:
 		return
-	if item != "age_up" and world.unit_count(owner_id) >= world.pop_cap(owner_id):
+	var is_unit := item != "age_up" and not item.begins_with("tech:")
+	if is_unit and world.unit_count(owner_id) >= world.pop_cap(owner_id):
 		queue_t = need  # wartet auf Häuser
 		return
 	queue_t = 0.0
 	queue.pop_front()
 	if item == "age_up":
 		world.complete_age_up(owner_id)
+	elif item.begins_with("tech:"):
+		world.complete_research(owner_id, item.substr(5))
 	else:
 		var u = world.spawn_unit(item, owner_id, world.spawn_point(self))
 		if has_rally:
 			world.command_units([u], rally)
+		if owner_id == world.human:
+			world.play_sound("train", center())
 
 
 func _do_attack(delta: float) -> void:
@@ -149,6 +159,8 @@ func _do_attack(delta: float) -> void:
 		return
 	attack_t = a["cd"]
 	var atk: float = float(a["atk"]) + world.players[owner_id]["age"]
+	if world.players[owner_id]["techs"].has("tower_arrows"):
+		atk += 3.0
 	world.spawn_projectile(self, e, world.calc_damage("tower", atk, e), false)
 
 

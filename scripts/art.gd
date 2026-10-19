@@ -30,12 +30,12 @@ const UNIT_T := {
 		".....osssso.....",
 		".....oesseo.....",
 		".....osssso.....",
-		"......oSSo...h..",
-		".....otttto..h..",
-		"....osttttsooh..",
-		"....os.tt...oh..",
-		"......tTTt...h..",
-		"......bbbb..www.",
+		"......oSSo......",
+		".....otttto.....",
+		"....osttttso....",
+		"....os.tt.so....",
+		"......tTTt......",
+		"......bbbb......",
 		"......b..b......",
 		".....oo..oo.....",
 		"................",
@@ -113,6 +113,41 @@ const UNIT_T := {
 		"................",
 	],
 }
+
+# Laufanimation: ersetzt einzelne Zeilen der Grundvorlage (Zeile -> Inhalt)
+const WALK := {
+	"villager": [
+		{12: "......bbbb......", 13: ".....b....b.....", 14: "....oo....oo...."},
+		{12: "......bbbb......", 13: ".......bb.......", 14: "......oooo......"},
+	],
+	"spear": [
+		{12: "...a...bbbb..h..", 13: "......b....b.h..", 14: ".....oo....oo..."},
+		{12: "...a...bbbb..h..", 13: "........bb...h..", 14: ".......oooo....."},
+	],
+	"archer": [
+		{12: "......bbbb.....h", 13: ".....b....b...h.", 14: "....oo....oo..h."},
+		{12: "......bbbb.....h", 13: ".......bb.....h.", 14: "......oooo....h."},
+	],
+	"cavalry": [
+		{13: ".M..M.....M..M..", 14: ".o..o.....o..o.."},
+		{13: "...MM.....MM....", 14: "...oo.....oo...."},
+	],
+	"siege": [
+		{12: "...obo....obo...", 13: "...ooo....ooo...", 14: "...obo....obo..."},
+		{12: "...ooo....ooo...", 13: "...bob....bob...", 14: "...ooo....ooo..."},
+	],
+}
+
+# Werkzeuge der Dorfbewohner, Griff unten (Drehpunkt = PIVOT)
+const TOOLS := {
+	"axe": ["..ww...", ".www...", ".wwh...", "...h...", "...h...", "...h...", "...h..."],
+	"pick": [".wwwww.", "w..h..w", "...h...", "...h...", "...h...", "...h...", "...h..."],
+	"hammer": [".www...", ".www...", "..h....", "..h....", "..h....", "..h...."],
+	"hoe": ["www....", "..h....", "..h....", "..h....", "..h....", "..h...."],
+	"sword": ["..w..", "..w..", "..w..", "..w..", ".hhh.", "..h.."],
+	"basket": [".oooo.", "orrrro", "obbbbo", ".oooo."],
+}
+const TOOL_PAL := {"w": Color("d8d8e0"), "h": Color("7a5430"), "o": Color("4a3018"), "r": Color("d03060"), "b": Color("a07040")}
 
 const TREE_PINE := [
 	".......o........",
@@ -224,17 +259,71 @@ func _img_from(rows: Array, pal: Dictionary, w: int, h: int, ox := 0, oy := 0, i
 
 
 func unit_tex(faction: String, kind: String, team: int) -> Texture2D:
-	var key := "u_%s_%s_%d" % [faction, kind, team]
+	return unit_frames(faction, kind, team)[0]
+
+
+## [Stehen, Schritt 1, Schritt 2]
+func unit_frames(faction: String, kind: String, team: int) -> Array:
+	var key := "uf_%s_%s_%d" % [faction, kind, team]
 	if _cache.has(key):
 		return _cache[key]
 	var pal: Dictionary = PAL[faction].duplicate()
 	pal["t"] = TEAM[team]
 	pal["T"] = TEAM[team].darkened(0.35)
-	var img := _img_from(UNIT_T[kind], pal, 16, 16)
-	if HEAD.has(kind):
-		var hp: Vector2i = HEAD[kind]
-		_img_from(OVERLAY[faction], pal, 16, 16, hp.x, hp.y, img)
+	var frames := []
+	var variants: Array = [{}]
+	variants.append_array(WALK.get(kind, []))
+	for v in variants:
+		var rows: Array = UNIT_T[kind].duplicate()
+		for r in v:
+			rows[r] = v[r]
+		var img := _img_from(rows, pal, 16, 16)
+		if HEAD.has(kind):
+			var hp: Vector2i = HEAD[kind]
+			_img_from(OVERLAY[faction], pal, 16, 16, hp.x, hp.y, img)
+		frames.append(ImageTexture.create_from_image(img))
+	_cache[key] = frames
+	return frames
+
+
+const SCROLL := [
+	".oooooooooo.",
+	"oaaaaaaaaaao",
+	".owwwwwwwwo.",
+	".owhhhhhhwo.",
+	".owwwwwwwwo.",
+	".owhhhhhwwo.",
+	".owwwwwwwwo.",
+	".owhhhhhhwo.",
+	".owwwwwwwwo.",
+	"oaaaaaaaaaao",
+	".oooooooooo.",
+]
+
+
+func tech_icon() -> Texture2D:
+	if _cache.has("tech_icon"):
+		return _cache["tech_icon"]
+	var img := _img_from(SCROLL, {"o": Color("4a3018"), "a": Color("a07040"), "w": Color("f0e0b0"), "h": Color("7a6040")}, 12, 11)
+	img.resize(24, 22, Image.INTERPOLATE_NEAREST)
 	var tex := ImageTexture.create_from_image(img)
+	_cache["tech_icon"] = tex
+	return tex
+
+
+func tool_tex(tool: String, faction: String) -> Texture2D:
+	var key := "t_%s_%s" % [tool, faction]
+	if _cache.has(key):
+		return _cache[key]
+	var pal: Dictionary = TOOL_PAL.duplicate()
+	if faction == "aliens":
+		pal["w"] = Color("90f0ff")
+		pal["h"] = Color("505868")
+	elif faction == "plants":
+		pal["w"] = Color("e0d040")
+		pal["h"] = Color("5a3e1e")
+	var rows: Array = TOOLS[tool]
+	var tex := ImageTexture.create_from_image(_img_from(rows, pal, 7, rows.size()))
 	_cache[key] = tex
 	return tex
 
@@ -578,4 +667,12 @@ func minimap_image(world) -> Image:
 	var cols := {"tree": Color("1e5a1a"), "gold": Color("f0d040"), "stone": Color("b0b0b8"), "berry": Color("d04070")}
 	for cell in world.resources:
 		img.set_pixel(cell.x, cell.y, cols[world.resources[cell]["kind"]])
+	if world.fog_enabled:
+		for y in h:
+			for x in w:
+				var i := y * w + x
+				if world.explored[i] == 0:
+					img.set_pixel(x, y, Color("06060c"))
+				elif world.vis[i] == 0:
+					img.set_pixel(x, y, img.get_pixel(x, y).darkened(0.55))
 	return img

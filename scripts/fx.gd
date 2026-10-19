@@ -21,8 +21,12 @@ func _ready() -> void:
 		"click":
 			n = 0
 			life = 0.35
+		"chips", "sparks", "dust", "leaves":
+			n = 5
+			life = 0.35
+	var spread := 1.0 if kind in ["die", "rubble", "hit"] else 0.5
 	for i in n:
-		parts.append({"p": Vector2(randf_range(-4, 4), randf_range(-6, 0)), "v": Vector2(randf_range(-35, 35), randf_range(-60, -10))})
+		parts.append({"p": Vector2(randf_range(-2, 2), randf_range(-3, 0)), "v": Vector2(randf_range(-35, 35), randf_range(-60, -10)) * spread})
 
 
 func _process(delta: float) -> void:

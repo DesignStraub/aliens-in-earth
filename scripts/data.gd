@@ -93,6 +93,41 @@ const BUILDINGS := {
 }
 const BUILD_ORDER := ["house", "farm", "mill", "camp", "barracks", "range", "stable", "workshop", "palisade", "wall", "gate", "tower", "town_center"]
 
+const MAP_SIZES := [
+	{"name": "Klein", "size": 96},
+	{"name": "Mittel", "size": 128},
+	{"name": "Groß", "size": 160},
+]
+const DIFFICULTY := [
+	{"name": "Leicht", "think": 1.7, "gather": 0.8, "attack": 520.0},
+	{"name": "Normal", "think": 1.0, "gather": 1.0, "attack": 330.0},
+	{"name": "Schwer", "think": 0.6, "gather": 1.25, "attack": 240.0},
+]
+
+# Forschung: "at" = Gebäude, in dem geforscht wird; "req" = vorherige Technologie
+const TECHS := {
+	"loom": {"name": "Webstuhl", "desc": "Arbeiter +15 LP und +1 Rüstung", "cost": {"gold": 50}, "time": 20.0, "age": 0, "at": "town_center"},
+	"wheelbarrow": {"name": "Schubkarre", "desc": "Arbeiter +10% Tempo, tragen 5 mehr", "cost": {"food": 175, "wood": 50}, "time": 30.0, "age": 1, "at": "town_center"},
+	"handcart": {"name": "Handkarren", "desc": "Arbeiter +10% Tempo, tragen 5 mehr", "cost": {"food": 300, "wood": 200}, "time": 40.0, "age": 2, "at": "town_center", "req": "wheelbarrow"},
+	"masonry": {"name": "Mauerwerk", "desc": "Alle Gebäude und Mauern +20% LP", "cost": {"wood": 175, "stone": 150}, "time": 40.0, "age": 2, "at": "town_center"},
+	"tower_arrows": {"name": "Turmgeschütze", "desc": "Türme und Dorfzentrum +3 Angriff", "cost": {"food": 200, "wood": 150}, "time": 35.0, "age": 2, "at": "town_center"},
+	"gunpowder": {"name": "Schießpulver", "desc": "Alle Militäreinheiten +20% Angriff", "cost": {"food": 400, "gold": 400}, "time": 60.0, "age": 4, "at": "town_center"},
+	"double_axe": {"name": "Doppelaxt", "desc": "Holz sammeln +20%", "cost": {"food": 100, "wood": 50}, "time": 20.0, "age": 1, "at": "camp"},
+	"bow_saw": {"name": "Bügelsäge", "desc": "Holz sammeln +20%", "cost": {"food": 150, "wood": 100}, "time": 30.0, "age": 2, "at": "camp", "req": "double_axe"},
+	"gold_mining": {"name": "Goldbergbau", "desc": "Gold sammeln +20%", "cost": {"food": 100, "wood": 75}, "time": 25.0, "age": 1, "at": "camp"},
+	"stone_mining": {"name": "Steinbruch", "desc": "Stein sammeln +20%", "cost": {"food": 100, "wood": 75}, "time": 25.0, "age": 1, "at": "camp"},
+	"horse_collar": {"name": "Schweres Joch", "desc": "Farmen +25% Ertrag, neue Farmen +150 Nahrung", "cost": {"food": 75, "wood": 75}, "time": 20.0, "age": 1, "at": "mill"},
+	"crop_rotation": {"name": "Fruchtwechsel", "desc": "Farmen +25% Ertrag, neue Farmen +150 Nahrung", "cost": {"food": 250, "wood": 200}, "time": 40.0, "age": 3, "at": "mill", "req": "horse_collar"},
+	"forging": {"name": "Schmiedekunst", "desc": "Nahkampfeinheiten +2 Angriff", "cost": {"food": 150}, "time": 30.0, "age": 1, "at": "barracks"},
+	"scale_armor": {"name": "Schuppenpanzer", "desc": "Alle Militäreinheiten +1 Rüstung", "cost": {"food": 150, "gold": 100}, "time": 35.0, "age": 2, "at": "barracks"},
+	"fletching": {"name": "Befiederung", "desc": "Schützen +1 Angriff und +1 Reichweite", "cost": {"food": 100, "wood": 50}, "time": 30.0, "age": 1, "at": "range"},
+	"barding": {"name": "Rossharnisch", "desc": "Reiter +25% LP", "cost": {"food": 150, "gold": 100}, "time": 35.0, "age": 2, "at": "stable"},
+	"ballistics": {"name": "Ballistik", "desc": "Belagerung +25% Angriff und +1 Reichweite", "cost": {"wood": 300, "gold": 175}, "time": 45.0, "age": 3, "at": "workshop"},
+}
+
+## Konfiguration bzw. Spielstand, der nach einem Szenen-Neustart geladen wird.
+var pending: Dictionary = {}
+
 const GATHER := {"berry": 0.6, "farm": 0.5, "tree": 0.55, "gold": 0.5, "stone": 0.48}
 
 
@@ -106,7 +141,7 @@ func unit_name(kind: String, faction: String, age: int) -> String:
 	return TIER_PREFIX[unit_tier(kind, age)] + str(FACTIONS[faction]["units"][kind])
 
 
-func unit_stats(kind: String, faction: String, age: int) -> Dictionary:
+func unit_stats(kind: String, faction: String, age: int, techs: Dictionary = {}) -> Dictionary:
 	var s: Dictionary = UNITS[kind].duplicate(true)
 	var tier := unit_tier(kind, age)
 	s["hp"] = float(s["hp"]) * (1.0 + 0.3 * tier)
@@ -120,8 +155,51 @@ func unit_stats(kind: String, faction: String, age: int) -> Dictionary:
 			s["speed"] = float(s["speed"]) * 1.15
 			if kind == "archer":
 				s["range"] = float(s["range"]) + 1.0
+	var military := kind != "villager"
+	if kind == "villager":
+		if techs.has("loom"):
+			s["hp"] = float(s["hp"]) + 15.0
+			s["armor"] = float(s["armor"]) + 1.0
+		for t in ["wheelbarrow", "handcart"]:
+			if techs.has(t):
+				s["speed"] = float(s["speed"]) * 1.1
+	if techs.has("forging") and military and float(UNITS[kind]["range"]) == 0.0:
+		s["atk"] = float(s["atk"]) + 2.0
+	if techs.has("scale_armor") and military:
+		s["armor"] = float(s["armor"]) + 1.0
+	if techs.has("fletching") and kind == "archer":
+		s["atk"] = float(s["atk"]) + 1.0
+		s["range"] = float(s["range"]) + 1.0
+	if techs.has("barding") and kind == "cavalry":
+		s["hp"] = float(s["hp"]) * 1.25
+	if techs.has("ballistics") and kind == "siege":
+		s["atk"] = float(s["atk"]) * 1.25
+		s["range"] = float(s["range"]) + 1.0
+	if techs.has("gunpowder") and military:
+		s["atk"] = float(s["atk"]) * 1.2
 	s["tier"] = tier
 	return s
+
+
+func carry_cap(techs: Dictionary) -> float:
+	var c := CARRY
+	for t in ["wheelbarrow", "handcart"]:
+		if techs.has(t):
+			c += 5.0
+	return c
+
+
+func farm_food(techs: Dictionary) -> float:
+	var f: float = BUILDINGS["farm"]["food"]
+	for t in ["horse_collar", "crop_rotation"]:
+		if techs.has(t):
+			f += 150.0
+	return f
+
+
+func building_hp(kind: String, techs: Dictionary) -> float:
+	var h: float = BUILDINGS[kind]["hp"]
+	return h * 1.2 if techs.has("masonry") else h
 
 
 func unit_cost(kind: String, faction: String) -> Dictionary:
@@ -143,8 +221,12 @@ func building_name(kind: String, faction: String) -> String:
 	return str(BUILDINGS[kind]["name"])
 
 
-func gather_rate(faction: String, kind: String) -> float:
+func gather_rate(faction: String, kind: String, techs: Dictionary = {}) -> float:
 	var r: float = GATHER[kind]
+	var boosts := {"tree": ["double_axe", "bow_saw"], "gold": ["gold_mining"], "stone": ["stone_mining"], "farm": ["horse_collar", "crop_rotation"]}
+	for t in boosts.get(kind, []):
+		if techs.has(t):
+			r *= 1.25 if kind == "farm" else 1.2
 	if faction == "mammals" and (kind == "berry" or kind == "farm"):
 		r *= 1.2
 	if faction == "plants" and kind == "tree":

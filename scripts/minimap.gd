@@ -15,8 +15,8 @@ func _process(delta: float) -> void:
 	if world == null or not world.running:
 		return
 	t -= delta
-	if t <= 0.0 and (world.minimap_dirty or tex == null):
-		t = 1.5
+	if t <= 0.0 and (world.minimap_dirty or world.fog_enabled or tex == null):
+		t = 1.0
 		world.minimap_dirty = false
 		var img: Image = Art.minimap_image(world)
 		if tex == null:
@@ -33,12 +33,18 @@ func _draw() -> void:
 	draw_texture_rect(tex, Rect2(Vector2.ZERO, size), false)
 	var s := size / Vector2(world.W, world.H)
 	for b in world.buildings:
+		if not b.visible:
+			continue
 		draw_rect(Rect2(Vector2(b.cell) * s, Vector2(b.size, b.size) * s), Art.TEAM[b.owner_id])
 	for u in world.units:
+		if not u.visible:
+			continue
 		draw_rect(Rect2(u.position / 16.0 * s - Vector2(1, 1), Vector2(2.5, 2.5)), Art.TEAM[u.owner_id].lightened(0.35))
 	var cam: Camera2D = world.camera
 	var vs: Vector2 = get_viewport_rect().size / cam.zoom
 	draw_rect(Rect2((cam.position - vs / 2.0) / 16.0 * s, vs / 16.0 * s), Color.WHITE, false, 1.0)
+	if world.game_time - world.alarm_t < 4.0 and fmod(world.game_time, 0.5) < 0.3:
+		draw_arc(world.alarm_pos / 16.0 * s, 7.0, 0.0, TAU, 20, Color("ff3030"), 2.0)
 	draw_rect(Rect2(Vector2.ZERO, size), Color("c8a060"), false, 1.0)
 
 

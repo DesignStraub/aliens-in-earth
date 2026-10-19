@@ -7,6 +7,7 @@ const NONE := Vector2i(-1, -1)
 var world
 var pid := 1
 var think_t := 0.0
+var think_interval := 1.0
 var drop_t := 5.0
 var next_attack := 330.0
 var rng := RandomNumberGenerator.new()
@@ -23,7 +24,7 @@ func _process(delta: float) -> void:
 	think_t -= delta
 	if think_t > 0.0:
 		return
-	think_t = 1.0
+	think_t = think_interval
 	_think()
 
 
@@ -45,6 +46,7 @@ func _think() -> void:
 		_build_stuff(p, tc, vills)
 		_assign_gatherers(p, tc, vills)
 		_age_up(p, tc, vills)
+		_research(p, vills)
 		_train_army(p, vills, army)
 	_war(p, tc, army)
 
@@ -286,6 +288,22 @@ func _age_up(p: Dictionary, tc, vills: Array) -> void:
 	world.queue_age_up(tc)
 
 
+const TECH_PRIORITY := ["loom", "double_axe", "horse_collar", "wheelbarrow", "gold_mining", "forging", "fletching", "bow_saw", "masonry", "scale_armor", "barding", "handcart", "tower_arrows", "crop_rotation", "stone_mining", "ballistics", "gunpowder"]
+
+
+func _research(p: Dictionary, vills: Array) -> void:
+	var reserve := _reserve(p, vills)
+	for tid in TECH_PRIORITY:
+		if not world.tech_available(pid, tid):
+			continue
+		var at: String = Data.TECHS[tid]["at"]
+		for b in world.buildings:
+			if b.owner_id == pid and b.kind == at and b.built and b.queue.is_empty():
+				if _afford_with_reserve(Data.TECHS[tid]["cost"], reserve):
+					world.queue_research(b, tid)
+				return
+
+
 # ---------------------------------------------------------------- Militär
 
 func _train_army(p: Dictionary, vills: Array, army: Array) -> void:
@@ -296,7 +314,7 @@ func _train_army(p: Dictionary, vills: Array, army: Array) -> void:
 		if enemy.has(u.kind):
 			if u.owner_id == pid:
 				own[u.kind] = int(own[u.kind]) + 1
-			else:
+			elif world.is_enemy(pid, u.owner_id):
 				enemy[u.kind] = int(enemy[u.kind]) + 1
 	# Konter-Gewichte nach Schere-Stein-Papier
 	var w := {

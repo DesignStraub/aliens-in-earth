@@ -1,5 +1,5 @@
 extends Node2D
-## Die Spielwelt: Karte, Wegfindung, Wirtschaft, Auswahl und Eingabe.
+## Die Spielwelt: Karte, Wegfindung, Wirtschaft, Nebel des Krieges, Speichern, Auswahl und Eingabe.
 
 const MapGen = preload("res://scripts/map_gen.gd")
 const UnitScript = preload("res://scripts/unit.gd")
@@ -8,6 +8,7 @@ const ProjectileScript = preload("res://scripts/projectile.gd")
 const FxScript = preload("res://scripts/fx.gd")
 const ResLayerScript = preload("res://scripts/res_layer.gd")
 const OverlayScript = preload("res://scripts/overlay.gd")
+const FogScript = preload("res://scripts/fog.gd")
 const AIScript = preload("res://scripts/ai.gd")
 const HudScript = preload("res://scripts/hud.gd")
 
@@ -15,6 +16,7 @@ const T := 16
 const WATER := 1
 const NONE := Vector2i(-1, -1)
 const DIRS8 := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 1), Vector2i(-1, 1), Vector2i(1, -1), Vector2i(-1, -1)]
+const SAVE_PATH := "user://spielstand.save"
 
 var W := 0
 var H := 0
@@ -31,14 +33,25 @@ var game_over := false
 var game_time := 0.0
 var seed_val := 0
 var autotest := false
+var config: Dictionary = {}
+## Index des menschlichen Spielers, -1 = nur Zuschauen (Autotest)
+var human := 0
 
 var res_layer
 var entities: Node2D
 var fx_layer: Node2D
 var overlay
+var fog
 var camera: Camera2D
 var hud
 var ais: Array = []
+
+var fog_enabled := true
+var explored := PackedByteArray()
+var vis := PackedByteArray()
+var fog_t := 0.0
+var alarm_t := -100.0
+var alarm_pos := Vector2.ZERO
 
 var selected: Array = []
 var place_kind := ""
@@ -59,30 +72,83 @@ func _ready() -> void:
 	hud = HudScript.new()
 	hud.world = self
 	add_child(hud)
-	if "--autotest" in OS.get_cmdline_user_args():
+	var args := OS.get_cmdline_user_args()
+	if "--autotest" in args or "--autotest4" in args:
 		autotest = true
 		Engine.time_scale = 8.0
-		start_game("mammals", ["aliens", "plants"][randi() % 2])
-	elif "--uitest" in OS.get_cmdline_user_args():
-		start_game("plants", "aliens")
+		var opp := []
+		for i in (3 if "--autotest4" in args else 1):
+			opp.append(Data.FACTIONS.keys()[randi() % 3])
+		start_game({"faction": "mammals", "opponents": opp, "teams": "ffa", "map_size": 0 if opp.size() == 1 else 1, "fog": false, "difficulty": 1, "spectate": true})
+	elif "--uitest" in args:
+		start_game({"faction": "plants", "opponents": ["aliens"], "teams": "ffa", "map_size": 0, "fog": true, "difficulty": 1})
 		_ui_test()
+	elif "--loadtest" in args:
+		_load_save(read_save())
+		await get_tree().create_timer(3.0).timeout
+		print("Geladen: Einheiten ", units.size(), " Gebäude ", buildings.size(), " Zeit ", int(game_time), " Techs ", players[0]["techs"].keys())
+		get_viewport().get_texture().get_image().save_png("res://shot_load.png")
+		get_tree().quit()
+	elif not Data.pending.is_empty():
+		var pend: Dictionary = Data.pending
+		Data.pending = {}
+		if pend.has("save"):
+			_load_save(pend["save"])
+		else:
+			start_game(pend["config"])
 	else:
-		hud.show_menu()
-		if "--menushot" in OS.get_cmdline_user_args():
-			await get_tree().create_timer(1.5).timeout
-			get_viewport().get_texture().get_image().save_png("res://shot_menu.png")
+		hud.show_title()
+		if "--menushot" in args:
+			for step in ["title", "setup", "settings"]:
+				if step == "setup":
+					hud.show_setup()
+				elif step == "settings":
+					hud.show_settings(hud.show_title)
+				await get_tree().create_timer(1.5).timeout
+				get_viewport().get_texture().get_image().save_png("res://shot_%s.png" % step)
 			get_tree().quit()
 
 
-func start_game(fac: String, enemy_fac: String) -> void:
-	seed_val = randi()
-	W = Data.MAP_W
-	H = Data.MAP_H
-	var g: Dictionary = MapGen.generate(W, H, seed_val)
-	terrain = g["terrain"]
-	resources = g["res"]
-	var starts: Array = g["starts"]
+# ---------------------------------------------------------------- Spielaufbau
 
+## cfg: faction, opponents[], teams ("ffa" | "all_vs_you"), map_size, fog, difficulty
+func start_game(cfg: Dictionary) -> void:
+	config = cfg
+	seed_val = randi()
+	var size: int = Data.MAP_SIZES[int(cfg.get("map_size", 0))]["size"]
+	var facs: Array = [cfg["faction"]]
+	facs.append_array(cfg["opponents"])
+	human = -1 if cfg.get("spectate", false) else 0
+	var g: Dictionary = MapGen.generate(size, size, seed_val, facs.size())
+	var diff: Dictionary = Data.DIFFICULTY[int(cfg.get("difficulty", 1))]
+	var pl := []
+	for i in facs.size():
+		var team := i
+		if cfg.get("teams", "ffa") == "all_vs_you":
+			team = 0 if i == 0 else 1
+		var ai := i != human
+		pl.append({"id": i, "faction": facs[i], "res": Data.START_RES.duplicate(), "age": 0, "aging": false, "ai": ai, "team": team, "techs": {}, "researching": {}, "gather_mult": float(diff["gather"]) if ai else 1.0, "alive": true})
+	_build_world(size, size, g["terrain"], g["res"], pl, bool(cfg.get("fog", true)) and human >= 0)
+	var starts: Array = g["starts"]
+	for i in facs.size():
+		var s: Vector2i = starts[i]
+		place_building("town_center", s - Vector2i(1, 1), i, true)
+		for k in 3:
+			spawn_unit("villager", i, cell_center(s + Vector2i(-2 + k * 2, 3)))
+		spawn_unit("spear", i, cell_center(s + Vector2i(3, -2)))
+	_spawn_ais({})
+	camera.position = cell_center(starts[maxi(human, 0)])
+	_update_fog()
+	running = true
+	hud.on_game_started()
+
+
+func _build_world(w: int, h: int, terr: PackedByteArray, res: Dictionary, pl: Array, fog_on: bool) -> void:
+	W = w
+	H = h
+	terrain = terr
+	resources = res
+	players = pl
 	var ts := Sprite2D.new()
 	ts.centered = false
 	ts.texture = ImageTexture.create_from_image(Art.build_terrain_image(terrain, W, H, seed_val))
@@ -97,30 +163,244 @@ func start_game(fac: String, enemy_fac: String) -> void:
 	add_child(entities)
 	fx_layer = Node2D.new()
 	add_child(fx_layer)
+	fog_enabled = fog_on
+	explored.resize(W * H)
+	vis.resize(W * H)
+	explored.fill(0 if fog_on else 1)
+	vis.fill(0 if fog_on else 1)
+	if fog_on:
+		fog = FogScript.new()
+		fog.world = self
+		add_child(fog)
+		fog.setup()
 	overlay = OverlayScript.new()
 	overlay.world = self
+	overlay.z_index = 11
 	add_child(overlay)
-
-	players = []
-	var facs := [fac, enemy_fac]
-	for i in 2:
-		players.append({"id": i, "faction": facs[i], "res": Data.START_RES.duplicate(), "age": 0, "aging": false, "ai": i == 1 or autotest})
 	_setup_astar()
-	for i in 2:
-		var s: Vector2i = starts[i]
-		place_building("town_center", s - Vector2i(1, 1), i, true)
-		for k in 3:
-			spawn_unit("villager", i, cell_center(s + Vector2i(-2 + k * 2, 3)))
-		spawn_unit("spear", i, cell_center(s + Vector2i(3, -2)))
-		if players[i]["ai"]:
+
+
+func _spawn_ais(saved: Dictionary) -> void:
+	var diff: Dictionary = Data.DIFFICULTY[int(config.get("difficulty", 1))]
+	for i in players.size():
+		if players[i]["ai"] and players[i]["alive"]:
 			var ai = AIScript.new()
 			ai.world = self
 			ai.pid = i
+			ai.think_interval = diff["think"]
+			ai.next_attack = saved.get(i, float(diff["attack"]) + randf_range(-30, 30))
 			add_child(ai)
 			ais.append(ai)
-	camera.position = cell_center(starts[0])
+
+
+func player_name(pid: int) -> String:
+	if pid == human:
+		return "Du"
+	return "%s (Spieler %d)" % [Data.FACTIONS[players[pid]["faction"]]["name"], pid + 1]
+
+
+func is_enemy(a: int, b: int) -> bool:
+	return a != b and players[a]["team"] != players[b]["team"]
+
+
+func _same_team_as_human(pid: int) -> bool:
+	return human >= 0 and players[pid]["team"] == players[human]["team"]
+
+
+# ---------------------------------------------------------------- Nebel des Krieges
+
+func cell_visible(c: Vector2i) -> bool:
+	if not fog_enabled:
+		return true
+	return in_bounds(c) and vis[c.y * W + c.x] == 1
+
+
+func cell_explored(c: Vector2i) -> bool:
+	if not fog_enabled:
+		return true
+	return in_bounds(c) and explored[c.y * W + c.x] == 1
+
+
+func is_pos_visible(pos: Vector2) -> bool:
+	return cell_visible(to_cell(pos))
+
+
+func _reveal(c: Vector2i, r: int) -> void:
+	for dy in range(-r, r + 1):
+		var y := c.y + dy
+		if y < 0 or y >= H:
+			continue
+		for dx in range(-r, r + 1):
+			var x := c.x + dx
+			if x >= 0 and x < W and dx * dx + dy * dy <= r * r:
+				vis[y * W + x] = 1
+
+
+func _update_fog() -> void:
+	if not fog_enabled:
+		return
+	vis.fill(0)
+	for u in units:
+		if _same_team_as_human(u.owner_id):
+			_reveal(u.cell(), int(u.stats["sight"]))
+	for b in buildings:
+		if _same_team_as_human(b.owner_id):
+			_reveal(b.cell + Vector2i(b.size / 2, b.size / 2), b.size + (6 if b.built else 1))
+	for i in vis.size():
+		if vis[i] == 1:
+			explored[i] = 1
+	for u in units:
+		if not _same_team_as_human(u.owner_id):
+			u.visible = cell_visible(u.cell())
+	for b in buildings:
+		if not _same_team_as_human(b.owner_id):
+			b.visible = cell_explored(b.cell) or cell_explored(b.cell + Vector2i(b.size - 1, b.size - 1))
+	fog.refresh()
+
+
+func play_sound(sound: String, pos: Vector2, vol_db := 0.0) -> void:
+	if is_pos_visible(pos):
+		Sfx.play(sound, pos, vol_db)
+
+
+func notify_attacked(e) -> void:
+	if e.owner_id != human or game_time - alarm_t < 12.0:
+		return
+	alarm_t = game_time
+	alarm_pos = e.aim_point()
+	hud.message("Ihr werdet angegriffen!")
+	Sfx.play("alarm")
+
+
+# ---------------------------------------------------------------- Forschung
+
+func tech_available(pid: int, tid: String) -> bool:
+	var t: Dictionary = Data.TECHS[tid]
+	var p: Dictionary = players[pid]
+	if p["techs"].has(tid) or p["researching"].has(tid) or int(p["age"]) < int(t["age"]):
+		return false
+	return not t.has("req") or p["techs"].has(t["req"])
+
+
+func queue_research(b, tid: String) -> bool:
+	var pid: int = b.owner_id
+	if not tech_available(pid, tid) or b.queue.size() >= 8:
+		return false
+	var cost: Dictionary = Data.TECHS[tid]["cost"]
+	if not can_afford(pid, cost):
+		_msg(pid, missing_text(pid, cost))
+		return false
+	pay(pid, cost)
+	players[pid]["researching"][tid] = true
+	b.queue.append("tech:" + tid)
+	return true
+
+
+func complete_research(pid: int, tid: String) -> void:
+	var p: Dictionary = players[pid]
+	p["researching"].erase(tid)
+	p["techs"][tid] = true
+	for u in units:
+		if u.owner_id == pid:
+			u.refresh_stats()
+	if tid == "masonry":
+		for b in buildings:
+			if b.owner_id == pid:
+				var ratio: float = b.hp / b.max_hp
+				b.max_hp = Data.building_hp(b.kind, p["techs"])
+				b.hp = b.max_hp * ratio
+	if pid == human:
+		hud.message("Erforscht: %s" % Data.TECHS[tid]["name"])
+		Sfx.play("research")
+	hud.dirty = true
+
+
+# ---------------------------------------------------------------- Speichern & Laden
+
+func save_game() -> bool:
+	var bl := []
+	for b in buildings:
+		bl.append({"kind": b.kind, "owner": b.owner_id, "cell": b.cell, "hp": b.hp, "max_hp": b.max_hp, "built": b.built, "progress": b.progress, "queue": b.queue.duplicate(), "queue_t": b.queue_t, "food": b.food_left, "has_rally": b.has_rally, "rally": b.rally})
+	var ul := []
+	for u in units:
+		ul.append({"kind": u.kind, "owner": u.owner_id, "pos": u.position, "hp": u.hp, "carry": u.carry, "carry_type": u.carry_type, "gather_cell": u.gather_cell, "gather_kind": u.gather_kind,
+			"farm": buildings.find(u.farm) if valid(u.farm) else -1,
+			"build": buildings.find(u.target) if u.state == UnitScript.S.BUILD and valid(u.target) else -1})
+	var ai_state := {}
+	for ai in ais:
+		ai_state[ai.pid] = ai.next_attack
+	var data := {"version": 1, "config": config, "seed": seed_val, "human": human, "W": W, "H": H, "terrain": terrain, "resources": resources, "players": players,
+		"fog": fog_enabled, "explored": explored, "game_time": game_time, "camera": camera.position, "buildings": bl, "units": ul, "ai": ai_state}
+	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if f == null:
+		return false
+	f.store_var(data)
+	f.close()
+	hud.message("Spiel gespeichert")
+	return true
+
+
+static func has_save() -> bool:
+	return FileAccess.file_exists(SAVE_PATH)
+
+
+static func read_save() -> Dictionary:
+	if not FileAccess.file_exists(SAVE_PATH):
+		return {}
+	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
+	if f == null:
+		return {}
+	var d = f.get_var()
+	f.close()
+	return d if d is Dictionary else {}
+
+
+func _load_save(d: Dictionary) -> void:
+	config = d["config"]
+	seed_val = d["seed"]
+	human = d["human"]
+	_build_world(d["W"], d["H"], d["terrain"], d["resources"], d["players"], d["fog"])
+	explored = d["explored"]
+	game_time = d["game_time"]
+	var bl := []
+	for bd in d["buildings"]:
+		var b = place_building(bd["kind"], bd["cell"], bd["owner"], bd["built"])
+		b.max_hp = bd["max_hp"]
+		b.hp = bd["hp"]
+		b.progress = bd["progress"]
+		b.queue = bd["queue"]
+		b.queue_t = bd["queue_t"]
+		b.food_left = bd["food"]
+		b.has_rally = bd["has_rally"]
+		b.rally = bd["rally"]
+		bl.append(b)
+	for ud in d["units"]:
+		var u = spawn_unit(ud["kind"], ud["owner"], ud["pos"])
+		u.hp = ud["hp"]
+		if int(ud["farm"]) >= 0:
+			u.cmd_farm(bl[ud["farm"]])
+		elif int(ud["build"]) >= 0:
+			u.cmd_build(bl[ud["build"]])
+		elif ud["gather_kind"] != "" and resources.has(ud["gather_cell"]):
+			u.cmd_gather(ud["gather_cell"])
+		u.carry = ud["carry"]
+		u.carry_type = ud["carry_type"]
+	_spawn_ais(d["ai"])
+	camera.position = d["camera"]
+	_update_fog()
 	running = true
 	hud.on_game_started()
+	hud.message("Spielstand geladen")
+
+
+func request_load() -> void:
+	var d := read_save()
+	if d.is_empty():
+		hud.message("Kein Spielstand vorhanden")
+		return
+	Data.pending = {"save": d}
+	get_tree().paused = false
+	get_tree().reload_current_scene()
 
 
 func _make_astar() -> AStarGrid2D:
@@ -135,7 +415,9 @@ func _make_astar() -> AStarGrid2D:
 
 
 func _setup_astar() -> void:
-	astars = [_make_astar(), _make_astar()]
+	astars = []
+	for i in players.size():
+		astars.append(_make_astar())
 	astar_terrain = _make_astar()
 	for y in H:
 		for x in W:
@@ -290,7 +572,7 @@ func find_blocking_building(pid: int, from: Vector2i, to: Vector2i):
 	var ids: Array[Vector2i] = astar_terrain.get_id_path(from, to, true)
 	for c in ids:
 		var b = occ.get(c)
-		if b != null and b.owner_id != pid and _building_blocks(pid, c):
+		if b != null and is_enemy(pid, b.owner_id) and _building_blocks(pid, c):
 			return b
 	return null
 
@@ -339,6 +621,8 @@ func unit_at(pos: Vector2):
 	var best = null
 	var bd := 9.0
 	for u in units:
+		if not u.visible:
+			continue
 		var d: float = u.aim_point().distance_to(pos)
 		if d < bd:
 			bd = d
@@ -350,7 +634,7 @@ func nearest_enemy_unit(pid: int, pos: Vector2, radius: float):
 	var best = null
 	var bd := radius
 	for u in units:
-		if u.owner_id == pid:
+		if not is_enemy(pid, u.owner_id):
 			continue
 		var d: float = pos.distance_to(u.position)
 		if d < bd:
@@ -363,7 +647,7 @@ func nearest_enemy_building(pid: int, pos: Vector2, radius: float, walls := fals
 	var best = null
 	var bd := radius
 	for b in buildings:
-		if b.owner_id == pid or (not walls and b.info.get("wall", false)):
+		if not is_enemy(pid, b.owner_id) or (not walls and b.info.get("wall", false)):
 			continue
 		var d := dist_to_rect(pos, b.rect())
 		if d < bd:
@@ -418,7 +702,7 @@ func _danger_zones(pid: int) -> Array:
 	if pid < 0:
 		return out
 	for b in buildings:
-		if b.owner_id != pid and b.info.has("attack"):
+		if is_enemy(pid, b.owner_id) and b.info.has("attack"):
 			out.append(b.center())
 	return out
 
@@ -519,8 +803,9 @@ func pop_cap(pid: int) -> int:
 
 
 func _msg(pid: int, text: String) -> void:
-	if pid == 0 and not players[0]["ai"]:
+	if pid == human:
 		hud.message(text)
+		Sfx.play("error")
 
 
 func queue_train(b, kind: String) -> bool:
@@ -566,6 +851,10 @@ func cancel_queue(b, idx: int) -> void:
 	if item == "age_up":
 		refund(b.owner_id, Data.AGES[p["age"] + 1]["cost"])
 		p["aging"] = false
+	elif item.begins_with("tech:"):
+		var tid := item.substr(5)
+		refund(b.owner_id, Data.TECHS[tid]["cost"])
+		p["researching"].erase(tid)
 	else:
 		refund(b.owner_id, Data.unit_cost(item, p["faction"]))
 	b.queue.remove_at(idx)
@@ -581,10 +870,11 @@ func complete_age_up(pid: int) -> void:
 		if u.owner_id == pid:
 			u.refresh_stats()
 	var name: String = Data.AGES[p["age"]]["name"]
-	if pid == 0:
+	if pid == human:
 		hud.message("Ihr habt die %s erreicht! Eure Einheiten werden stärker." % name)
-	else:
-		hud.message("Der Gegner hat die %s erreicht." % name)
+		Sfx.play("ageup")
+	elif human >= 0:
+		hud.message("%s hat die %s erreicht." % [player_name(pid), name])
 	hud.dirty = true
 	if autotest:
 		print("[%4ds] Spieler %d erreicht %s" % [int(game_time), pid, name])
@@ -628,8 +918,9 @@ func on_building_complete(b) -> void:
 		for x in b.size:
 			refresh_cell(b.cell + Vector2i(x, y))
 	hud.dirty = true
-	if b.owner_id == 0 and not b.info.get("wall", false):
-		_msg(0, "%s fertiggestellt" % b.display_name())
+	if b.owner_id == human and not b.info.get("wall", false):
+		hud.message("%s fertiggestellt" % b.display_name())
+		play_sound("complete", b.center())
 
 
 func destroy_building(b) -> void:
@@ -646,6 +937,7 @@ func destroy_building(b) -> void:
 			refresh_cell(n)
 	if b.kind != "farm":
 		spawn_fx("rubble", b.center(), Color("8a7a60"))
+		play_sound("collapse", b.center())
 	b.queue_free()
 	hud.dirty = true
 	minimap_dirty = true
@@ -666,11 +958,14 @@ func kill_unit(u) -> void:
 	units.erase(u)
 	selected.erase(u)
 	spawn_fx("die", u.position, Art.TEAM[u.owner_id])
+	play_sound("death", u.position, -4.0)
 	u.queue_free()
 	hud.dirty = true
 
 
-func spawn_fx(kind: String, pos: Vector2, color: Color) -> void:
+func spawn_fx(kind: String, pos: Vector2, color: Color, only_visible := false) -> void:
+	if only_visible and not (Sfx.view_rect.has_point(pos) and is_pos_visible(pos)):
+		return
 	var f = FxScript.new()
 	f.kind = kind
 	f.color = color
@@ -720,15 +1015,19 @@ func command_units(list: Array, pos: Vector2) -> void:
 	var pid: int = list[0].owner_id
 	var c := to_cell(pos)
 	var eu = unit_at(pos)
-	if eu != null and eu.owner_id != pid:
+	if eu != null and is_enemy(pid, eu.owner_id):
 		for u in list:
 			u.cmd_attack(eu)
 		return
 	var b = occ.get(c)
 	if b != null:
-		if b.owner_id != pid:
+		if is_enemy(pid, b.owner_id):
 			for u in list:
 				u.cmd_attack(b)
+			return
+		if b.owner_id != pid:
+			for i in list.size():
+				list[i].cmd_move(pos)
 			return
 		for u in list:
 			if u.kind != "villager":
@@ -761,9 +1060,15 @@ func _process(delta: float) -> void:
 	if not running:
 		return
 	_camera_move(delta)
+	var vs: Vector2 = get_viewport().get_visible_rect().size / camera.zoom
+	Sfx.view_rect = Rect2(camera.position - vs / 2.0, vs).grow(48.0)
 	if game_over:
 		return
 	game_time += delta
+	fog_t -= delta
+	if fog_t <= 0.0:
+		fog_t = 0.25
+		_update_fog()
 	check_t -= delta
 	if check_t <= 0.0:
 		check_t = 1.0
@@ -789,7 +1094,7 @@ func _camera_move(delta: float) -> void:
 	var vp := get_viewport()
 	var m := vp.get_mouse_position()
 	var vs := vp.get_visible_rect().size
-	if not autotest and DisplayServer.window_is_focused() and Rect2(Vector2.ZERO, vs).has_point(m):
+	if Settings.edge_scroll and not autotest and DisplayServer.window_is_focused() and Rect2(Vector2.ZERO, vs).has_point(m):
 		if m.x < 5:
 			dir.x -= 1
 		elif m.x > vs.x - 5:
@@ -798,17 +1103,17 @@ func _camera_move(delta: float) -> void:
 			dir.y -= 1
 		elif m.y > vs.y - 5:
 			dir.y += 1
-	camera.position += dir * 750.0 * (delta / maxf(0.01, Engine.time_scale)) / camera.zoom.x
+	camera.position += dir * 750.0 * Settings.cam_speed * (delta / maxf(0.01, Engine.time_scale)) / camera.zoom.x
 	camera.position = camera.position.clamp(Vector2.ZERO, Vector2(W * T, H * T + 60))
 
 
 func _zoom(f: float) -> void:
-	var z := clampf(camera.zoom.x * f, 1.5, 6.0)
+	var z := clampf(camera.zoom.x * f, 1.5, 7.0)
 	camera.zoom = Vector2(z, z)
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not running or game_over:
+	if not running or game_over or human < 0:
 		return
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
@@ -853,11 +1158,17 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_ESCAPE:
 				if place_kind != "":
 					cancel_placement()
-				else:
+				elif not selected.is_empty():
 					select_list([])
+				else:
+					hud.toggle_pause_menu()
+			KEY_F10:
+				hud.toggle_pause_menu()
+			KEY_F5:
+				save_game()
 			KEY_H:
 				for b in buildings:
-					if b.owner_id == 0 and b.kind == "town_center":
+					if b.owner_id == human and b.kind == "town_center":
 						select_list([b])
 						camera.position = b.center()
 						break
@@ -865,7 +1176,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				_select_idle_villager()
 			KEY_DELETE, KEY_BACKSPACE:
 				for e in selected.duplicate():
-					if valid(e) and e.owner_id == 0:
+					if valid(e) and e.owner_id == human:
 						if e.is_building:
 							destroy_building(e)
 						else:
@@ -883,7 +1194,7 @@ func _update_ghost() -> void:
 func own_selected_units() -> Array:
 	var out := []
 	for e in selected:
-		if valid(e) and not e.is_building and e.owner_id == 0:
+		if valid(e) and not e.is_building and e.owner_id == human:
 			out.append(e)
 	return out
 
@@ -897,13 +1208,13 @@ func _selected_villagers() -> Array:
 
 
 func start_placement(kind: String) -> void:
-	var p: Dictionary = players[0]
+	var p: Dictionary = players[human]
 	if int(p["age"]) < int(Data.BUILDINGS[kind]["age"]):
-		hud.message("Erst ab %s verfügbar" % Data.AGES[Data.BUILDINGS[kind]["age"]]["name"])
+		_msg(human, "Erst ab %s verfügbar" % Data.AGES[Data.BUILDINGS[kind]["age"]]["name"])
 		return
 	var cost := Data.building_cost(kind, p["faction"])
-	if not can_afford(0, cost):
-		hud.message(missing_text(0, cost))
+	if not can_afford(human, cost):
+		_msg(human, missing_text(human, cost))
 		return
 	place_kind = kind
 	wall_start = NONE
@@ -918,33 +1229,35 @@ func cancel_placement() -> void:
 
 
 func _try_place_at(kind: String, c: Vector2i) -> bool:
-	var cost := Data.building_cost(kind, players[0]["faction"])
+	var cost := Data.building_cost(kind, players[human]["faction"])
 	if not can_place(kind, c):
-		hud.message("Hier kann nicht gebaut werden")
+		_msg(human, "Hier kann nicht gebaut werden")
 		return false
-	if not can_afford(0, cost):
-		hud.message(missing_text(0, cost))
+	if not can_afford(human, cost):
+		_msg(human, missing_text(human, cost))
 		return false
-	pay(0, cost)
-	var b = place_building(kind, c, 0, false)
+	pay(human, cost)
+	var b = place_building(kind, c, human, false)
 	for v in _selected_villagers():
 		v.cmd_build(b)
+	Sfx.play("build")
 	return true
 
 
 func _place_wall_line(kind: String, a: Vector2i, b: Vector2i) -> void:
-	var cost := Data.building_cost(kind, players[0]["faction"])
+	var cost := Data.building_cost(kind, players[human]["faction"])
 	var placed := []
 	for c in line_cells(a, b):
 		if not can_place(kind, c):
 			continue
-		if not can_afford(0, cost):
-			hud.message(missing_text(0, cost))
+		if not can_afford(human, cost):
+			_msg(human, missing_text(human, cost))
 			break
-		pay(0, cost)
-		placed.append(place_building(kind, c, 0, false))
+		pay(human, cost)
+		placed.append(place_building(kind, c, human, false))
 	if placed.is_empty():
 		return
+	Sfx.play("build")
 	var vills := _selected_villagers()
 	for i in vills.size():
 		vills[i].cmd_build(placed[mini(i, placed.size() - 1)])
@@ -976,15 +1289,17 @@ func _finish_selection(a: Vector2, b: Vector2, add: bool) -> void:
 				list.append(u)
 		else:
 			var bld = occ.get(to_cell(b))
-			if bld != null:
+			if bld != null and bld.visible:
 				list = [bld]
 	else:
 		for u in units:
-			if u.owner_id == 0 and r.has_point(u.aim_point()) and not list.has(u):
+			if u.owner_id == human and r.has_point(u.aim_point()) and not list.has(u):
 				list.append(u)
 		# Gebäude nicht mit Einheiten mischen
 		list = list.filter(func(e) -> bool: return not e.is_building)
 	select_list(list)
+	if not list.is_empty() and list[0].owner_id == human:
+		Sfx.play("select")
 
 
 func _right_click(pos: Vector2) -> void:
@@ -992,9 +1307,10 @@ func _right_click(pos: Vector2) -> void:
 	if not own.is_empty():
 		command_units(own, pos)
 		spawn_fx("click", pos, Color(0.4, 1, 0.4))
+		Sfx.play("ack_" + players[human]["faction"])
 		return
 	for e in selected:
-		if valid(e) and e.is_building and e.owner_id == 0 and e.info.has("trains"):
+		if valid(e) and e.is_building and e.owner_id == human and e.info.has("trains"):
 			e.has_rally = true
 			e.rally = pos
 			spawn_fx("click", pos, Color.WHITE)
@@ -1003,7 +1319,7 @@ func _right_click(pos: Vector2) -> void:
 func _select_idle_villager() -> void:
 	var idle := []
 	for u in units:
-		if u.owner_id == 0 and u.kind == "villager" and u.state == UnitScript.S.IDLE:
+		if u.owner_id == human and u.kind == "villager" and u.state == UnitScript.S.IDLE:
 			idle.append(u)
 	if idle.is_empty():
 		hud.message("Keine untätigen Arbeiter")
@@ -1019,28 +1335,50 @@ func center_on(pos: Vector2) -> void:
 	camera.position = pos
 
 
-# ---------------------------------------------------------------- Spielende & Test
+# ---------------------------------------------------------------- Spielende & Tests
+
+func _player_alive(pid: int) -> bool:
+	for b in buildings:
+		if b.owner_id == pid and not b.info.get("wall", false):
+			return true
+	for u in units:
+		if u.owner_id == pid:
+			return true
+	return false
+
 
 func _check_victory() -> void:
+	var teams := {}
 	for pid in players.size():
-		var alive := false
-		for b in buildings:
-			if b.owner_id == pid and not b.info.get("wall", false):
-				alive = true
-				break
-		if not alive:
-			for u in units:
-				if u.owner_id == pid:
-					alive = true
-					break
-		if not alive:
-			game_over = true
-			hud.show_game_over(pid != 0)
+		var p: Dictionary = players[pid]
+		if p["alive"] and not _player_alive(pid):
+			p["alive"] = false
+			for b in buildings.duplicate():
+				if b.owner_id == pid:
+					destroy_building(b)
+			if pid != human and human >= 0:
+				hud.message("%s wurde besiegt!" % player_name(pid))
 			if autotest:
-				print("SPIELENDE nach %ds: Spieler %d verliert" % [int(game_time), pid])
-				_print_stats()
-				get_tree().quit()
-			return
+				print("[%4ds] Spieler %d besiegt" % [int(game_time), pid])
+		if p["alive"]:
+			teams[p["team"]] = true
+	if human >= 0:
+		if not players[human]["alive"]:
+			_end(false)
+		elif teams.size() <= 1:
+			_end(true)
+	elif teams.size() <= 1:
+		_end(true)
+
+
+func _end(win: bool) -> void:
+	game_over = true
+	hud.show_game_over(win)
+	Sfx.play("ageup" if win else "death")
+	if autotest:
+		print("SPIELENDE nach %ds" % int(game_time))
+		_print_stats()
+		get_tree().quit()
 
 
 func _autotest_tick(delta: float) -> void:
@@ -1048,7 +1386,7 @@ func _autotest_tick(delta: float) -> void:
 	if stat_t <= 0.0:
 		stat_t = 60.0
 		_print_stats()
-	if game_time > 1500.0:
+	if game_time > 1800.0:
 		print("Zeitlimit erreicht")
 		get_tree().quit()
 
@@ -1060,12 +1398,8 @@ func _print_stats() -> void:
 		for u in units:
 			if u.owner_id == pid:
 				counts[u.kind] = int(counts.get(u.kind, 0)) + 1
-		var bc := {}
-		for b in buildings:
-			if b.owner_id == pid:
-				bc[b.kind] = int(bc.get(b.kind, 0)) + 1
 		var r: Dictionary = p["res"]
-		print("[%4ds] P%d %s %s | N%d H%d G%d S%d | Pop %d/%d | %s | %s" % [int(game_time), pid, p["faction"], Data.AGES[p["age"]]["name"], int(r["food"]), int(r["wood"]), int(r["gold"]), int(r["stone"]), pop(pid), pop_cap(pid), str(counts), str(bc)])
+		print("[%4ds] P%d %s %s | N%d H%d G%d S%d | Pop %d/%d | %s | Tech %d" % [int(game_time), pid, p["faction"], Data.AGES[p["age"]]["name"], int(r["food"]), int(r["wood"]), int(r["gold"]), int(r["stone"]), pop(pid), pop_cap(pid), str(counts), p["techs"].size()])
 
 
 ## Entwickler-Test der Spielerbefehle: godot --path . -- --uitest
@@ -1083,23 +1417,31 @@ func _ui_test() -> void:
 				break
 	_place_wall_line("palisade", tc.cell + Vector2i(-6, -6), tc.cell + Vector2i(6, -9))
 	queue_train(tc, "villager")
-	queue_train(tc, "villager")
+	print("Forschung Webstuhl: ", queue_research(tc, "loom"))
 	print("Aufstieg: ", queue_age_up(tc))
-	await get_tree().create_timer(2.0).timeout
+	# zwei Arbeiter zum Holz, einer zu Gold
+	var wood := find_resource_near("tree", tc.cell, 20)
+	var gold := find_resource_near("gold", tc.cell, 20)
+	await get_tree().create_timer(4.0).timeout
+	vills = units.filter(func(u) -> bool: return u.owner_id == 0 and u.kind == "villager")
+	if wood.x >= 0:
+		vills[0].cmd_gather(wood)
+		vills[1].cmd_gather(wood)
+	if gold.x >= 0:
+		vills[2].cmd_gather(gold)
 	camera.position = tc.center()
-	await get_tree().create_timer(0.5).timeout
+	await get_tree().create_timer(6.0).timeout
 	get_viewport().get_texture().get_image().save_png("res://shot_ui1.png")
 	select_list([tc])
 	await get_tree().create_timer(0.5).timeout
 	get_viewport().get_texture().get_image().save_png("res://shot_ui2.png")
+	print("Speichern: ", save_game())
 	Engine.time_scale = 10.0
-	await get_tree().create_timer(90.0).timeout
-	print("Alter: ", players[0]["age"], " Einheiten: ", unit_count(0), " Gebäude: ", buildings.filter(func(b) -> bool: return b.owner_id == 0 and b.built).size())
-	var bar = buildings.filter(func(b) -> bool: return b.owner_id == 0 and b.kind == "barracks")
-	if not bar.is_empty():
-		for i in 4:
-			queue_train(bar[0], "spear")
+	await get_tree().create_timer(80.0).timeout
+	print("Alter: ", players[0]["age"], " Techs: ", players[0]["techs"].keys(), " Einheiten: ", unit_count(0))
 	Engine.time_scale = 1.0
+	if wood.x >= 0:
+		camera.position = cell_center(wood)
 	select_list(units.filter(func(u) -> bool: return u.owner_id == 0))
 	await get_tree().create_timer(1.0).timeout
 	get_viewport().get_texture().get_image().save_png("res://shot_ui3.png")

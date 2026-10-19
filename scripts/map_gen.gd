@@ -8,14 +8,14 @@ const SAND := 2
 const DIRS4 := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
 
 
-static func generate(w: int, h: int, seed_val: int) -> Dictionary:
+static func generate(w: int, h: int, seed_val: int, n_players := 2) -> Dictionary:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_val
 	var terrain := PackedByteArray()
 	terrain.resize(w * h)
 	terrain.fill(GRASS)
 	var res := {}
-	var starts := _pick_starts(w, h, rng)
+	var starts := _pick_starts(w, h, rng, n_players)
 
 	var nw := FastNoiseLite.new()
 	nw.seed = seed_val
@@ -38,12 +38,13 @@ static func generate(w: int, h: int, seed_val: int) -> Dictionary:
 
 	# Land zwischen den Spielern muss verbunden sein
 	var land_blocked := func(c: Vector2i) -> bool: return terrain[c.y * w + c.x] == WATER
-	if _bfs_path(w, h, starts[0], starts[1], land_blocked).is_empty():
-		for c in _line(starts[0], starts[1]):
-			for d in [Vector2i.ZERO, Vector2i(1, 0), Vector2i(0, 1)]:
-				var n: Vector2i = c + d
-				if _in(n, w, h) and terrain[n.y * w + n.x] == WATER:
-					terrain[n.y * w + n.x] = SAND
+	for i in range(1, starts.size()):
+		if _bfs_path(w, h, starts[0], starts[i], land_blocked).is_empty():
+			for c in _line(starts[0], starts[i]):
+				for d in [Vector2i.ZERO, Vector2i(1, 0), Vector2i(0, 1)]:
+					var n: Vector2i = c + d
+					if _in(n, w, h) and terrain[n.y * w + n.x] == WATER:
+						terrain[n.y * w + n.x] = SAND
 
 	# Wälder
 	for y in h:
@@ -59,10 +60,11 @@ static func generate(w: int, h: int, seed_val: int) -> Dictionary:
 
 	# Ein Weg ohne Bäume muss existieren, damit sich die Völker begegnen
 	var tree_blocked := func(c: Vector2i) -> bool: return terrain[c.y * w + c.x] == WATER or res.has(c)
-	if _bfs_path(w, h, starts[0], starts[1], tree_blocked).is_empty():
-		for c in _bfs_path(w, h, starts[0], starts[1], land_blocked):
-			for d in [Vector2i.ZERO, Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(0, -1)]:
-				res.erase(c + d)
+	for i in range(1, starts.size()):
+		if _bfs_path(w, h, starts[0], starts[i], tree_blocked).is_empty():
+			for c in _bfs_path(w, h, starts[0], starts[i], land_blocked):
+				for d in [Vector2i.ZERO, Vector2i(1, 0), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(0, -1)]:
+					res.erase(c + d)
 
 	for s in starts:
 		_clear(res, s, 7)
@@ -75,7 +77,8 @@ static func generate(w: int, h: int, seed_val: int) -> Dictionary:
 	var kinds := ["gold", "stone", "berry", "gold"]
 	var placed := 0
 	var tries := 0
-	while placed < 8 and tries < 200:
+	var extra := 8 * w * h / (96 * 96)
+	while placed < extra and tries < 400:
 		tries += 1
 		var c := Vector2i(rng.randi_range(6, w - 7), rng.randi_range(6, h - 7))
 		if _dist_to_starts(c, starts) < 22.0 or terrain[c.y * w + c.x] == WATER:
@@ -86,22 +89,16 @@ static func generate(w: int, h: int, seed_val: int) -> Dictionary:
 	return {"terrain": terrain, "res": res, "starts": starts}
 
 
-static func _pick_starts(w: int, h: int, rng: RandomNumberGenerator) -> Array:
-	var m := 16
-	var s: Array
-	match rng.randi_range(0, 3):
-		0:
-			s = [Vector2i(m, m), Vector2i(w - m - 1, h - m - 1)]
-		1:
-			s = [Vector2i(w - m - 1, m), Vector2i(m, h - m - 1)]
-		2:
-			s = [Vector2i(m, h / 2), Vector2i(w - m - 1, h / 2)]
-		_:
-			s = [Vector2i(w / 2, m), Vector2i(w / 2, h - m - 1)]
-	if rng.randf() < 0.5:
-		s.reverse()
-	for i in s.size():
-		s[i] = s[i] + Vector2i(rng.randi_range(-4, 4), rng.randi_range(-4, 4))
+static func _pick_starts(w: int, h: int, rng: RandomNumberGenerator, n: int) -> Array:
+	# Spieler gleichmäßig auf einem Ring um die Kartenmitte verteilen
+	var s := []
+	var center := Vector2(w, h) / 2.0
+	var radius := minf(w, h) / 2.0 - 16.0
+	var base := rng.randf() * TAU
+	for i in n:
+		var ang := base + TAU * i / n + rng.randf_range(-0.25, 0.25)
+		var p := center + Vector2(cos(ang), sin(ang)) * radius
+		s.append(Vector2i(clampi(roundi(p.x), 14, w - 15), clampi(roundi(p.y), 14, h - 15)))
 	return s
 
 

@@ -32,6 +32,7 @@ var tick := 0.0
 
 func _ready() -> void:
 	layer = 10
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build()
 
 
@@ -97,6 +98,11 @@ func _build() -> void:
 	hb.add_child(age_label)
 	time_label = Label.new()
 	hb.add_child(time_label)
+	var mb := Button.new()
+	mb.text = "Menü (F10)"
+	mb.focus_mode = Control.FOCUS_NONE
+	mb.pressed.connect(func(): toggle_pause_menu())
+	hb.add_child(mb)
 
 	# Untere Leiste
 	bottom_bar = PanelContainer.new()
@@ -126,6 +132,7 @@ func _build() -> void:
 	info_title.add_theme_font_size_override("font_size", 17)
 	info_title.add_theme_color_override("font_color", C_BORDER)
 	info_title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	info_title.custom_minimum_size = Vector2(150, 0)
 	title_row.add_child(info_title)
 	info_body = Label.new()
 	info_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -138,7 +145,8 @@ func _build() -> void:
 	prog.visible = false
 	info.add_child(prog)
 	queue_box = HBoxContainer.new()
-	info.add_child(queue_box)
+	queue_box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	title_row.add_child(queue_box)
 
 	cmd_grid = GridContainer.new()
 	cmd_grid.columns = 6
@@ -171,63 +179,123 @@ func message(text: String) -> void:
 # ---------------------------------------------------------------- Menü
 
 func show_menu() -> void:
-	menu = ColorRect.new()
-	menu.color = Color("140c08")
-	menu.set_anchors_preset(Control.PRESET_FULL_RECT)
-	root.add_child(menu)
+	show_title()
+
+
+# ---------------------------------------------------------------- Menüs
+
+const ParadeScript = preload("res://scripts/parade.gd")
+
+var setup := {"faction": "mammals", "opponents": ["random", "", ""], "teams": "ffa", "map_size": 0, "fog": true, "difficulty": 1}
+
+
+func _clear_menu() -> void:
+	if menu != null:
+		menu.queue_free()
+		menu = null
+
+
+func _menu_box(title_text: String, dim := false) -> VBoxContainer:
+	_clear_menu()
+	var bg := ColorRect.new()
+	bg.color = Color(0, 0, 0, 0.65) if dim else Color("140c08")
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_child(bg)
+	menu = bg
+	if not dim:
+		var parade := ParadeScript.new()
+		parade.set_anchors_preset(Control.PRESET_FULL_RECT)
+		bg.add_child(parade)
 	var center := CenterContainer.new()
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	menu.add_child(center)
+	bg.add_child(center)
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 16)
+	vb.add_theme_constant_override("separation", 14)
 	center.add_child(vb)
+	if title_text != "":
+		var title := Label.new()
+		title.text = title_text
+		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		title.add_theme_font_size_override("font_size", 52 if not dim else 38)
+		title.add_theme_color_override("font_color", C_BORDER)
+		vb.add_child(title)
+	return vb
 
-	var title := Label.new()
-	title.text = "KOMETEN & KRONEN"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 52)
-	title.add_theme_color_override("font_color", C_BORDER)
-	vb.add_child(title)
-	var sub := Label.new()
-	sub.text = "Mittelalter trifft Außerirdische. Sammle Rohstoffe, steige von der Dunklen Zeit bis zur Moderne auf\nund besiege deinen Gegner mit klugen Konter-Einheiten."
+
+func _big_button(text: String, cb: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.custom_minimum_size = Vector2(340, 48)
+	b.add_theme_font_size_override("font_size", 20)
+	b.pressed.connect(cb)
+	return b
+
+
+func _label(text: String, size := 15, color := C_TEXT) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_font_size_override("font_size", size)
+	l.add_theme_color_override("font_color", color)
+	return l
+
+
+func show_title() -> void:
+	top_bar.visible = false
+	bottom_bar.visible = false
+	var vb := _menu_box("KOMETEN & KRONEN")
+	var sub := _label("Säugetiere, Aliens und lebende Pflanzen kämpfen von der Dunklen Zeit bis zur Moderne.", 16)
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(sub)
+	var col := VBoxContainer.new()
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 10)
+	var wrap := CenterContainer.new()
+	wrap.add_child(col)
+	vb.add_child(wrap)
+	col.add_child(_big_button("Neues Spiel", show_setup))
+	var lb := _big_button("Spiel laden", func(): world.request_load())
+	lb.disabled = not world.has_save()
+	col.add_child(lb)
+	col.add_child(_big_button("Einstellungen", func(): show_settings(show_title)))
+	col.add_child(_big_button("Beenden", func(): get_tree().quit()))
+	var v := _label("Open Source (MIT)  •  github.com/DesignStraub/aliens-in-earth", 12, Color("8a7a60"))
+	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(v)
 
-	var opp_row := HBoxContainer.new()
-	opp_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	var ol := Label.new()
-	ol.text = "Gegner:"
-	opp_row.add_child(ol)
-	var opp := OptionButton.new()
-	opp.add_item("Zufällig")
-	for f in Data.FACTIONS:
-		opp.add_item(Data.FACTIONS[f]["name"])
-	opp_row.add_child(opp)
-	vb.add_child(opp_row)
 
-	var pick := Label.new()
-	pick.text = "Wähle dein Volk:"
-	pick.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	pick.add_theme_font_size_override("font_size", 20)
-	vb.add_child(pick)
+func _option(items: Array, selected: int, cb: Callable) -> OptionButton:
+	var o := OptionButton.new()
+	for it in items:
+		o.add_item(it)
+	o.selected = selected
+	o.custom_minimum_size = Vector2(220, 34)
+	o.item_selected.connect(cb)
+	return o
 
+
+func show_setup() -> void:
+	var vb := _menu_box("Neues Spiel")
+	vb.add_child(_label("Dein Volk", 18, C_BORDER))
 	var cards := HBoxContainer.new()
-	cards.add_theme_constant_override("separation", 18)
 	cards.alignment = BoxContainer.ALIGNMENT_CENTER
+	cards.add_theme_constant_override("separation", 14)
 	vb.add_child(cards)
+	var group := ButtonGroup.new()
 	for f in Data.FACTIONS:
 		var btn := Button.new()
-		btn.custom_minimum_size = Vector2(320, 250)
+		btn.toggle_mode = true
+		btn.button_group = group
+		btn.button_pressed = setup["faction"] == f
+		btn.custom_minimum_size = Vector2(300, 190)
+		btn.pressed.connect(func(): setup["faction"] = f)
 		cards.add_child(btn)
-		btn.pressed.connect(func(): _start(f, opp.selected))
 		var inner := VBoxContainer.new()
 		inner.set_anchors_preset(Control.PRESET_FULL_RECT)
-		inner.offset_left = 12
-		inner.offset_top = 12
-		inner.offset_right = -12
-		inner.offset_bottom = -12
+		inner.offset_left = 10
+		inner.offset_top = 10
+		inner.offset_right = -10
+		inner.offset_bottom = -10
 		inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		inner.add_theme_constant_override("separation", 10)
 		btn.add_child(inner)
 		var icons := HBoxContainer.new()
 		icons.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -235,59 +303,206 @@ func show_menu() -> void:
 		inner.add_child(icons)
 		var tcr := TextureRect.new()
 		tcr.texture = Art.building_tex(f, "town_center", 0)
-		tcr.custom_minimum_size = Vector2(72, 72)
+		tcr.custom_minimum_size = Vector2(60, 60)
 		tcr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		tcr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		icons.add_child(tcr)
 		for k in ["villager", "spear", "archer", "cavalry", "siege"]:
 			var ur := TextureRect.new()
 			ur.texture = Art.unit_tex(f, k, 0)
-			ur.custom_minimum_size = Vector2(40, 40)
+			ur.custom_minimum_size = Vector2(36, 36)
 			ur.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 			ur.size_flags_vertical = Control.SIZE_SHRINK_END
 			ur.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			icons.add_child(ur)
-		var nl := Label.new()
-		nl.text = Data.FACTIONS[f]["name"]
+		var nl := _label(Data.FACTIONS[f]["name"], 20, C_BORDER)
 		nl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		nl.add_theme_font_size_override("font_size", 22)
-		nl.add_theme_color_override("font_color", C_BORDER)
 		nl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		inner.add_child(nl)
-		var dl := Label.new()
-		dl.text = Data.FACTIONS[f]["desc"]
+		var dl := _label(Data.FACTIONS[f]["desc"], 12)
 		dl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		dl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		dl.add_theme_font_size_override("font_size", 13)
 		dl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		inner.add_child(dl)
 
-	var help := Label.new()
-	help.text = "Speer schlägt Reiter  •  Reiter schlagen Schützen  •  Schützen schlagen Speer  •  Belagerung zerstört Mauern"
-	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	help.add_theme_color_override("font_color", Color("b0a080"))
-	vb.add_child(help)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 16)
+	grid.add_theme_constant_override("v_separation", 8)
+	var gwrap := CenterContainer.new()
+	gwrap.add_child(grid)
+	vb.add_child(gwrap)
+	var fac_names := ["Zufällig"]
+	var fac_keys := ["random"]
+	for f in Data.FACTIONS:
+		fac_names.append(Data.FACTIONS[f]["name"])
+		fac_keys.append(f)
+	for i in 3:
+		var label := "Gegner %d" % (i + 1)
+		grid.add_child(_label(label))
+		var items := fac_names.duplicate() if i == 0 else ["– keiner –"] + fac_names
+		var keys := fac_keys.duplicate() if i == 0 else [""] + fac_keys
+		var idx := i
+		grid.add_child(_option(items, maxi(0, keys.find(setup["opponents"][i])), func(sel: int): setup["opponents"][idx] = keys[sel]))
+	grid.add_child(_label("Modus"))
+	grid.add_child(_option(["Jeder gegen jeden", "Alle gegen dich"], 0 if setup["teams"] == "ffa" else 1, func(sel: int): setup["teams"] = "ffa" if sel == 0 else "all_vs_you"))
+	grid.add_child(_label("Kartengröße"))
+	var sizes := []
+	for m in Data.MAP_SIZES:
+		sizes.append("%s (%d×%d)" % [m["name"], m["size"], m["size"]])
+	grid.add_child(_option(sizes, setup["map_size"], func(sel: int): setup["map_size"] = sel))
+	grid.add_child(_label("Schwierigkeit"))
+	var diffs := []
+	for d in Data.DIFFICULTY:
+		diffs.append(d["name"])
+	grid.add_child(_option(diffs, setup["difficulty"], func(sel: int): setup["difficulty"] = sel))
+	grid.add_child(_label("Nebel des Krieges"))
+	var fog := CheckBox.new()
+	fog.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	fog.button_pressed = setup["fog"]
+	fog.toggled.connect(func(on: bool): setup["fog"] = on)
+	grid.add_child(fog)
+
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 16)
+	var back := _big_button("Zurück", show_title)
+	back.custom_minimum_size = Vector2(200, 48)
+	row.add_child(back)
+	var go := _big_button("Spiel starten", _start_setup)
+	go.custom_minimum_size = Vector2(260, 48)
+	row.add_child(go)
+	vb.add_child(row)
 
 
-func _start(f: String, opp_idx: int) -> void:
+func _start_setup() -> void:
 	var keys := Data.FACTIONS.keys()
-	var enemy: String
-	if opp_idx <= 0:
-		var others := keys.filter(func(k) -> bool: return k != f)
-		enemy = others[randi() % others.size()]
+	var opp := []
+	for o in setup["opponents"]:
+		if o == "":
+			continue
+		opp.append(keys[randi() % keys.size()] if o == "random" else o)
+	var size := int(setup["map_size"])
+	if opp.size() >= 3:
+		size = maxi(size, 1)
+	var cfg := {"faction": setup["faction"], "opponents": opp, "teams": setup["teams"], "map_size": size, "fog": setup["fog"], "difficulty": setup["difficulty"]}
+	_clear_menu()
+	world.start_game(cfg)
+
+
+func _slider(minv: float, maxv: float, step: float, value: float, fmt: String, on_change: Callable, on_done := Callable()) -> HBoxContainer:
+	var hb := HBoxContainer.new()
+	var sl := HSlider.new()
+	sl.min_value = minv
+	sl.max_value = maxv
+	sl.step = step
+	sl.value = value
+	sl.custom_minimum_size = Vector2(260, 24)
+	sl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var vl := _label(fmt % value)
+	vl.custom_minimum_size = Vector2(60, 0)
+	sl.value_changed.connect(func(v: float):
+		vl.text = fmt % v
+		on_change.call(v))
+	if on_done.is_valid():
+		sl.drag_ended.connect(func(_changed: bool): on_done.call())
+	hb.add_child(sl)
+	hb.add_child(vl)
+	return hb
+
+
+func show_settings(back: Callable) -> void:
+	var vb := _menu_box("Einstellungen", world.running)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 20)
+	grid.add_theme_constant_override("v_separation", 12)
+	var gwrap := CenterContainer.new()
+	gwrap.add_child(grid)
+	vb.add_child(gwrap)
+	grid.add_child(_label("Oberflächen-Skalierung"))
+	grid.add_child(_slider(0.75, 2.5, 0.05, Settings.ui_scale, "%.2f×", func(v: float): Settings.ui_scale = v, func(): Settings.apply()))
+	grid.add_child(_label("Vollbild"))
+	var fs := CheckBox.new()
+	fs.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	fs.button_pressed = Settings.fullscreen
+	fs.toggled.connect(func(on: bool):
+		Settings.fullscreen = on
+		Settings.apply())
+	grid.add_child(fs)
+	grid.add_child(_label("Lautstärke"))
+	grid.add_child(_slider(0.0, 100.0, 5.0, Settings.volume * 100.0, "%.0f%%", func(v: float):
+		Settings.volume = v / 100.0
+		Settings.apply(), func(): Sfx.play("select")))
+	grid.add_child(_label("Bildschirmrand-Scrollen"))
+	var es := CheckBox.new()
+	es.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	es.button_pressed = Settings.edge_scroll
+	es.toggled.connect(func(on: bool): Settings.edge_scroll = on)
+	grid.add_child(es)
+	grid.add_child(_label("Kamera-Tempo"))
+	grid.add_child(_slider(0.4, 2.5, 0.1, Settings.cam_speed, "%.1f×", func(v: float): Settings.cam_speed = v))
+	var hint := _label("Die Oberfläche passt sich automatisch der Fenstergröße an (auch 4K).\nDie Skalierung vergrößert sie zusätzlich.", 12, Color("a09070"))
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(hint)
+	var done := _big_button("Fertig", func():
+		Settings.save()
+		back.call())
+	var dwrap := CenterContainer.new()
+	dwrap.add_child(done)
+	vb.add_child(dwrap)
+
+
+func toggle_pause_menu() -> void:
+	if not world.running or world.game_over:
+		return
+	if menu != null:
+		_close_pause()
 	else:
-		enemy = keys[opp_idx - 1]
-	menu.queue_free()
-	menu = null
-	world.start_game(f, enemy)
+		_open_pause()
+
+
+func _open_pause() -> void:
+	get_tree().paused = true
+	var vb := _menu_box("Pause", true)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 10)
+	var wrap := CenterContainer.new()
+	wrap.add_child(col)
+	vb.add_child(wrap)
+	col.add_child(_big_button("Weiterspielen", _close_pause))
+	col.add_child(_big_button("Speichern (F5)", func():
+		world.save_game()
+		_close_pause()))
+	var lb := _big_button("Laden", func(): world.request_load())
+	lb.disabled = not world.has_save()
+	col.add_child(lb)
+	col.add_child(_big_button("Einstellungen", func(): show_settings(_open_pause)))
+	col.add_child(_big_button("Hauptmenü", func():
+		get_tree().paused = false
+		get_tree().reload_current_scene()))
+
+
+func _close_pause() -> void:
+	_clear_menu()
+	get_tree().paused = false
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if menu != null and world.running and event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_ESCAPE, KEY_F10]:
+		_close_pause()
+		get_viewport().set_input_as_handled()
 
 
 func on_game_started() -> void:
 	top_bar.visible = true
 	bottom_bar.visible = true
 	dirty = true
-	var p: Dictionary = world.players[1]
-	message("Dein Gegner: %s. Viel Glück!" % Data.FACTIONS[p["faction"]]["name"])
+	if world.human >= 0 and world.game_time < 1.0:
+		var names := PackedStringArray()
+		for i in range(1, world.players.size()):
+			names.append(Data.FACTIONS[world.players[i]["faction"]]["name"])
+		message("Gegner: %s. Viel Glück!" % ", ".join(names))
 
 
 func show_game_over(win: bool) -> void:
@@ -310,7 +525,7 @@ func show_game_over(win: bool) -> void:
 	l.add_theme_color_override("font_color", C_BORDER if win else Color("e05050"))
 	vb.add_child(l)
 	var b := Button.new()
-	b.text = "Neues Spiel"
+	b.text = "Hauptmenü"
 	b.add_theme_font_size_override("font_size", 18)
 	b.pressed.connect(func(): get_tree().reload_current_scene())
 	vb.add_child(b)
@@ -338,11 +553,15 @@ func _process(delta: float) -> void:
 	_update_info()
 
 
+func _me() -> int:
+	return maxi(world.human, 0)
+
+
 func _update_top() -> void:
-	var p: Dictionary = world.players[0]
+	var p: Dictionary = world.players[_me()]
 	for k in Data.RES:
 		res_labels[k].text = "%s %d" % [Data.RES_NAMES[k], int(p["res"][k])]
-	pop_label.text = "Bevölkerung %d/%d" % [world.pop(0), world.pop_cap(0)]
+	pop_label.text = "Bevölkerung %d/%d" % [world.pop(_me()), world.pop_cap(_me())]
 	var age_txt: String = Data.AGES[p["age"]]["name"]
 	if p["aging"]:
 		age_txt += "  →  Aufstieg läuft…"
@@ -352,8 +571,8 @@ func _update_top() -> void:
 
 
 func _selection_sig() -> String:
-	var p: Dictionary = world.players[0]
-	var parts := PackedStringArray([str(p["age"]), str(p["aging"])])
+	var p: Dictionary = world.players[_me()]
+	var parts := PackedStringArray([str(p["age"]), str(p["aging"]), str(p["techs"].size()), str(p["researching"].size())])
 	for e in world.selected:
 		if world.valid(e):
 			parts.append(str(e.get_instance_id()))
@@ -389,9 +608,9 @@ func _rebuild_commands() -> void:
 	for c in queue_box.get_children():
 		c.queue_free()
 	var sel: Array = world.selected
-	if sel.is_empty() or not world.valid(sel[0]) or sel[0].owner_id != 0:
+	if sel.is_empty() or not world.valid(sel[0]) or sel[0].owner_id != world.human:
 		return
-	var p: Dictionary = world.players[0]
+	var p: Dictionary = world.players[world.human]
 	var f: String = p["faction"]
 	var age := int(p["age"])
 	var has_vill := false
@@ -419,12 +638,28 @@ func _rebuild_commands() -> void:
 		var btn := _cmd_button(null, "Aufstieg:\n" + na["name"], Data.cost_text(na["cost"]), p["aging"])
 		btn.tooltip_text = "Steige in die %s auf. Neue Gebäude und Einheiten, alle Einheiten werden stärker." % na["name"]
 		btn.pressed.connect(func(): world.queue_age_up(b))
+	for tid in Data.TECHS:
+		var td: Dictionary = Data.TECHS[tid]
+		if td["at"] != b.kind or p["techs"].has(tid) or p["researching"].has(tid):
+			continue
+		var locked: bool = age < int(td["age"]) or (td.has("req") and not p["techs"].has(td["req"]))
+		var tb := _cmd_button(Art.tech_icon(), td["name"], Data.cost_text(td["cost"]), locked)
+		var why := ""
+		if age < int(td["age"]):
+			why = "Erst ab %s\n" % Data.AGES[td["age"]]["name"]
+		elif td.has("req") and not p["techs"].has(td["req"]):
+			why = "Benötigt: %s\n" % Data.TECHS[td["req"]]["name"]
+		tb.tooltip_text = why + "Forschung: %s\n%s" % [td["name"], td["desc"]]
+		tb.pressed.connect(func(): world.queue_research(b, tid))
 	for i in b.queue.size():
 		var item: String = b.queue[i]
 		var qb := Button.new()
-		qb.custom_minimum_size = Vector2(34, 34)
+		qb.custom_minimum_size = Vector2(30, 30)
 		if item == "age_up":
 			qb.text = "Zeit"
+		elif item.begins_with("tech:"):
+			qb.icon = Art.tech_icon()
+			qb.expand_icon = true
 		else:
 			qb.icon = Art.icon(Art.unit_tex(f, item, 0))
 			qb.expand_icon = true
@@ -437,16 +672,16 @@ func _rebuild_commands() -> void:
 func _update_info() -> void:
 	var sel: Array = world.selected.filter(func(e) -> bool: return world.valid(e))
 	prog.visible = false
-	var f: String = world.players[0]["faction"]
+	var f: String = world.players[_me()]["faction"]
 	if sel.is_empty():
 		info_icon.texture = null
 		info_title.text = Data.FACTIONS[f]["name"]
-		info_body.text = "Linksklick / Ziehen: auswählen\nRechtsklick: bewegen, sammeln, bauen, angreifen\nWASD, Pfeile oder Bildschirmrand: Kamera  •  Mausrad: Zoom\nH: Dorfzentrum  •  Punkt: untätiger Arbeiter  •  Entf: löschen\nShift beim Bauen: mehrere platzieren"
+		info_body.text = "Linksklick/Ziehen: auswählen  •  Rechtsklick: Befehl\nWASD/Rand: Kamera  •  Mausrad: Zoom\nH: Dorfzentrum  •  Punkt: untätiger Arbeiter\nF5: speichern  •  Esc/F10: Menü"
 		return
 	if sel.size() == 1:
 		var e = sel[0]
 		info_icon.texture = e.tex
-		var enemy_tag := "" if e.owner_id == 0 else "  (Gegner)"
+		var enemy_tag := "" if e.owner_id == world.human else ("  (Verbündet)" if not world.is_enemy(_me(), e.owner_id) else "  (Gegner)")
 		if e.is_building:
 			info_title.text = e.display_name() + enemy_tag
 			var t := "Lebenspunkte %d / %d" % [int(e.hp), int(e.max_hp)]
@@ -458,7 +693,13 @@ func _update_info() -> void:
 				t += "\nNahrung übrig: %d" % int(e.food_left)
 			elif not e.queue.is_empty():
 				var item: String = e.queue[0]
-				var nm: String = "Aufstieg in die " + Data.AGES[world.players[e.owner_id]["age"] + 1]["name"] if item == "age_up" else Data.unit_name(item, e.faction, world.players[e.owner_id]["age"])
+				var nm: String
+				if item == "age_up":
+					nm = "Aufstieg in die " + Data.AGES[world.players[e.owner_id]["age"] + 1]["name"]
+				elif item.begins_with("tech:"):
+					nm = "Forschung: " + Data.TECHS[item.substr(5)]["name"]
+				else:
+					nm = Data.unit_name(item, e.faction, world.players[e.owner_id]["age"])
 				t += "\nIn Arbeit: " + nm
 				prog.visible = true
 				prog.value = e.queue_t / e.current_time() * 100.0
@@ -469,7 +710,7 @@ func _update_info() -> void:
 				for r in e.info["drop"]:
 					names.append(Data.RES_NAMES[r])
 				t += "\nAbgabe von: " + ", ".join(names)
-			if e.info.has("trains") and e.owner_id == 0 and e.built:
+			if e.info.has("trains") and e.owner_id == world.human and e.built:
 				t += "\nRechtsklick setzt den Sammelpunkt"
 			info_body.text = t
 		else:

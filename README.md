@@ -19,7 +19,15 @@ Oder im Terminal:
   Militär greift Mauern an, die ihm den Weg versperren
 - **Zufallskarten**: Seen, Strände, Wälder als natürliche Grenzen (abholzbar), Startressourcen für jeden Spieler
 - **Computer-Gegner**: baut die Wirtschaft auf, steigt in Zeitaltern auf, kontert deine Einheiten und greift in Wellen an
-- Minimap, Sammelpunkte, Bauschleife, Reparieren
+- **Bis zu 4 Spieler**: Jeder gegen jeden oder alle gegen dich, 3 Kartengrößen, 3 KI-Schwierigkeiten
+- **Nebel des Krieges**: unerforschtes Land ist schwarz, außer Sicht wird es abgedunkelt
+- **17 Technologien** in Dorfzentrum, Lager, Mühle, Kaserne, Schießstand, Stall und Werkstatt (Doppelaxt, Webstuhl, Schmiedekunst, Mauerwerk, Schießpulver …)
+- **Animationen**: Laufzyklen; Dorfbewohner zeigen mit Werkzeug, was sie tun (Axt, Spitzhacke, Hacke, Korb, Hammer) und tragen ihre Ladung sichtbar auf dem Rücken. Dazu Späne, Funken und Staub
+- **Sound**: alle Effekte werden zur Laufzeit synthetisiert (Hacken, Bergbau, Bauen, Kampf, Schüsse je Volk, Fanfaren, Angriffsalarm)
+- **Titelbildschirm, Spiel-Einrichtung, Einstellungen** (Oberflächen-Skalierung, Vollbild, Lautstärke, Kamera), Pausenmenü
+- **Speichern & Laden** (F5 oder Menü)
+- **Skalierung für 4K/Retina**: die Oberfläche wächst automatisch mit der Fenstergröße
+- Minimap mit Angriffs-Ping, Sammelpunkte, Bauschleife, Reparieren
 
 ## Steuerung
 | Eingabe | Aktion |
@@ -31,6 +39,8 @@ Oder im Terminal:
 | H | Dorfzentrum |
 | . (Punkt) | Nächster untätiger Arbeiter |
 | Entf | Auswahl löschen |
+| F5 | Speichern |
+| Esc / F10 | Pausenmenü |
 | Mauern | Ziehen = Linie, Shift = weiterbauen |
 
 ## Aufbau
@@ -42,10 +52,14 @@ Oder im Terminal:
 | `scripts/main.gd` | Welt: Raster, Wegfindung (AStarGrid2D je Spieler), Wirtschaft, Eingabe |
 | `scripts/unit.gd` / `building.gd` | Verhalten von Einheiten und Gebäuden |
 | `scripts/ai.gd` | Computer-Gegner |
-| `scripts/hud.gd` / `minimap.gd` | Oberfläche und Startmenü |
+| `scripts/hud.gd` / `minimap.gd` | Oberfläche, Titelbildschirm, Menüs |
+| `scripts/fog.gd` | Nebel des Krieges |
+| `scripts/sfx.gd` | Prozedurale Sound-Effekte |
+| `scripts/settings.gd` | Einstellungen (`user://settings.cfg`) |
 
 ## Entwickler-Tests
     Godot --headless --path . -- --autotest   # KI gegen KI, druckt Statistiken
+    Godot --headless --path . -- --autotest4  # 4 KIs gegeneinander
     Godot --path . -- --uitest                # skriptet Spielerbefehle, speichert Screenshots
 
 ## Lizenz

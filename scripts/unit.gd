@@ -1,9 +1,18 @@
 extends Node2D
-## Eine Einheit: Bewegen, Sammeln, Abliefern, Bauen/Reparieren, Kämpfen.
+## Eine Einheit: Bewegen, Sammeln, Abliefern, Bauen/Reparieren, Kämpfen – mit Animationen.
 
 enum S { IDLE, MOVE, GATHER, RETURN, BUILD, ATTACK }
 
 const NONE := Vector2i(-1, -1)
+const HAND := Vector2(4, -7)
+const TOOL_FOR := {"tree": "axe", "gold": "pick", "stone": "pick", "berry": "basket", "farm": "hoe"}
+const WORK_FX := {
+	"axe": ["chop", "chips", Color("b08050")],
+	"pick": ["mine", "sparks", Color("fff0a0")],
+	"hoe": ["farm", "dust", Color("8a6a40")],
+	"basket": ["gather", "leaves", Color("d03060")],
+	"hammer": ["build", "dust", Color("c8b890")],
+}
 
 var is_building := false
 var world
@@ -30,10 +39,14 @@ var repath_t := 0.0
 var scan_t := 0.0
 var fails := 0
 var selected := false
+var frames: Array = []
 var tex: Texture2D
 var flip := false
 var anim_t := 0.0
 var hit_flash := 0.0
+var working := false
+var work_phase := 0.0
+var lunge := Vector2.ZERO
 
 
 func setup(w, k: String, pid: int, pos: Vector2) -> void:
@@ -42,15 +55,18 @@ func setup(w, k: String, pid: int, pos: Vector2) -> void:
 	owner_id = pid
 	position = pos
 	faction = w.players[pid]["faction"]
-	tex = Art.unit_tex(faction, kind, pid)
+	frames = Art.unit_frames(faction, kind, pid)
+	tex = frames[0]
 	refresh_stats(true)
 	scan_t = randf() * 0.5
 	anim_t = randf() * 3.0
+	work_phase = randf()
 
 
 func refresh_stats(full := false) -> void:
 	var ratio := 1.0 if full else hp / max_hp
-	stats = Data.unit_stats(kind, faction, world.players[owner_id]["age"])
+	var p: Dictionary = world.players[owner_id]
+	stats = Data.unit_stats(kind, faction, p["age"], p["techs"])
 	max_hp = stats["hp"]
 	hp = max_hp * ratio
 
@@ -76,6 +92,15 @@ func reach() -> float:
 	return r * 16.0 if r > 0.0 else 11.0
 
 
+func carry_cap() -> float:
+	return Data.carry_cap(world.players[owner_id]["techs"])
+
+
+func _rate(res_kind: String) -> float:
+	var p: Dictionary = world.players[owner_id]
+	return Data.gather_rate(faction, res_kind, p["techs"]) * float(p["gather_mult"])
+
+
 # ---------------------------------------------------------------- Befehle
 
 func _reset() -> void:
@@ -97,7 +122,7 @@ func cmd_move(pos: Vector2) -> void:
 
 
 func cmd_attack(t) -> void:
-	if not world.valid(t) or t.owner_id == owner_id:
+	if not world.valid(t) or not world.is_enemy(owner_id, t.owner_id):
 		return
 	_reset()
 	target = t
@@ -147,7 +172,9 @@ func _process(delta: float) -> void:
 		return
 	attack_t = maxf(0.0, attack_t - delta)
 	hit_flash = maxf(0.0, hit_flash - delta)
+	lunge = lunge.move_toward(Vector2.ZERO, 20.0 * delta)
 	anim_t += delta
+	working = false
 	match state:
 		S.IDLE:
 			_idle(delta)
@@ -162,7 +189,10 @@ func _process(delta: float) -> void:
 			_build(delta)
 		S.ATTACK:
 			_attack(delta)
-	queue_redraw()
+	if working:
+		_animate_work(delta)
+	if visible:
+		queue_redraw()
 
 
 func _follow(delta: float) -> bool:
@@ -208,6 +238,7 @@ func _idle(delta: float) -> void:
 
 
 func _gather(delta: float) -> void:
+	var cap := carry_cap()
 	if gather_kind == "farm":
 		if not world.valid(farm):
 			farm = null
@@ -230,8 +261,9 @@ func _gather(delta: float) -> void:
 		if carry_type != "food":
 			carry = 0.0
 			carry_type = "food"
-		var amt := minf(Data.gather_rate(faction, "farm") * delta, Data.CARRY - carry)
+		var amt := minf(_rate("farm") * delta, cap - carry)
 		carry += farm.take_food(amt)
+		working = true
 	else:
 		if not world.resources.has(gather_cell):
 			_resource_gone()
@@ -249,10 +281,11 @@ func _gather(delta: float) -> void:
 		if carry_type != r["type"]:
 			carry = 0.0
 			carry_type = r["type"]
-		var amt := minf(Data.gather_rate(faction, gather_kind) * delta, Data.CARRY - carry)
+		var amt := minf(_rate(gather_kind) * delta, cap - carry)
 		carry += world.take_resource(gather_cell, amt)
 		flip = world.cell_center(gather_cell).x < position.x
-	if carry >= Data.CARRY - 0.01:
+		working = true
+	if carry >= cap - 0.01:
 		_go_return()
 
 
@@ -323,6 +356,7 @@ func _build(delta: float) -> void:
 		return
 	target.work(delta)
 	flip = target.center().x < position.x
+	working = true
 
 
 func _after_build() -> void:
@@ -407,10 +441,16 @@ func _path_to_target() -> void:
 
 func _strike(t) -> void:
 	var dmg: float = world.calc_damage(kind, stats["atk"], t)
+	var dir: Vector2 = (t.aim_point() - aim_point()).normalized()
 	if float(stats["range"]) > 0.0:
 		world.spawn_projectile(self, t, dmg, kind == "siege")
+		lunge = -dir * 1.5
+		var snd: String = "siege" if kind == "siege" else {"mammals": "arrow", "aliens": "beam", "plants": "spore"}[faction]
+		world.play_sound(snd, position)
 	else:
 		world.apply_damage(t, dmg, self)
+		lunge = dir * 3.0
+		world.play_sound("melee", position)
 
 
 func take_damage(amount: float, attacker) -> void:
@@ -419,8 +459,9 @@ func take_damage(amount: float, attacker) -> void:
 	if hp <= 0.0:
 		world.kill_unit(self)
 		return
-	if attacker == null or attacker.is_building or attacker.owner_id == owner_id:
+	if attacker == null or attacker.is_building or not world.is_enemy(owner_id, attacker.owner_id):
 		return
+	world.notify_attacked(self)
 	if is_military():
 		var busy_with_building: bool = state == S.ATTACK and world.valid(target) and target.is_building
 		if state == S.IDLE or busy_with_building:
@@ -428,27 +469,94 @@ func take_damage(amount: float, attacker) -> void:
 	world.call_for_help(self, attacker)
 
 
-# ---------------------------------------------------------------- Grafik
+# ---------------------------------------------------------------- Animation
+
+func current_tool() -> String:
+	if kind != "villager":
+		return ""
+	match state:
+		S.GATHER:
+			return TOOL_FOR.get(gather_kind, "")
+		S.BUILD:
+			return "hammer"
+		S.ATTACK:
+			return "sword"
+	return ""
+
+
+func _animate_work(delta: float) -> void:
+	var before := work_phase
+	work_phase = fmod(work_phase + delta / 0.9, 1.0)
+	# Schlag trifft bei Phase ~0.95
+	if before < 0.95 and (work_phase >= 0.95 or work_phase < before):
+		var tool := current_tool()
+		if WORK_FX.has(tool):
+			var fx: Array = WORK_FX[tool]
+			var hit := position + Vector2(-7 if flip else 7, -4)
+			world.spawn_fx(fx[1], hit, fx[2], true)
+			world.play_sound(fx[0], position, -6.0)
+
+
+func _tool_angle() -> float:
+	if not working:
+		return 0.5
+	# langsam ausholen, schnell zuschlagen
+	if work_phase < 0.7:
+		return lerpf(0.9, -1.6, work_phase / 0.7)
+	return lerpf(-1.6, 0.9, (work_phase - 0.7) / 0.3)
+
+
+func _draw_bundle() -> void:
+	var fill := clampf(carry / carry_cap(), 0.3, 1.0)
+	var h := 2.0 + 3.0 * fill
+	var r := Rect2(-7, -8 - h, 5, h)
+	match carry_type:
+		"wood":
+			draw_rect(r, Color("8a5a30"))
+			draw_rect(Rect2(r.position + Vector2(0, 1), Vector2(5, 1)), Color("5a3a1a"))
+			draw_rect(Rect2(r.position + Vector2(-1, h - 2), Vector2(7, 1)), Color("b08050"))
+		"gold":
+			draw_rect(r, Color("c89a30"))
+			draw_rect(Rect2(r.position + Vector2(1, 1), Vector2(2, 1)), Color("fff0a0"))
+		"stone":
+			draw_rect(r, Color("9a9aa2"))
+			draw_rect(Rect2(r.position + Vector2(2, 1), Vector2(2, 1)), Color("dcdce4"))
+		_:
+			draw_rect(r, Color("a07040"))
+			draw_rect(Rect2(r.position + Vector2(1, 0), Vector2(3, 2)), Color("d03060"))
+
 
 func _draw() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.45))
 	draw_circle(Vector2.ZERO, 4.5, Color(0, 0, 0, 0.28))
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	if selected:
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.5))
 		draw_arc(Vector2.ZERO, 7.0, 0.0, TAU, 20, Color(1, 1, 1, 0.9), 1.0)
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	var moving := not path.is_empty()
+	var frame := 0
 	var bob := 0.0
-	if not path.is_empty():
-		bob = float(int(anim_t * 8.0) % 2)
-	elif state == S.GATHER or state == S.BUILD or (state == S.ATTACK and attack_t > float(stats["cd"]) - 0.25):
-		bob = float(int(anim_t * 5.0) % 2)
+	if moving and frames.size() >= 3:
+		var step := int(anim_t * 2.2 * float(stats["speed"])) % 4
+		frame = [1, 0, 2, 0][step]
+		bob = 1.0 if step % 2 == 0 else 0.0
+	elif state == S.IDLE:
+		bob = 1.0 if fmod(anim_t, 2.4) < 0.25 else 0.0
+	var tool := current_tool()
+	if tool == "basket" and working:
+		bob = 1.0 if work_phase > 0.5 else 0.0
+	var base := Transform2D(0.0, Vector2(-1.0 if flip else 1.0, 1.0), 0.0, Vector2(lunge.x, lunge.y - bob))
+	draw_set_transform_matrix(base)
+	if carry > 0.0 and not working:
+		_draw_bundle()
 	var mod := Color(1, 0.55, 0.55) if hit_flash > 0.0 else Color.WHITE
-	draw_set_transform(Vector2(0, -bob), 0.0, Vector2(-1, 1) if flip else Vector2.ONE)
-	draw_texture(tex, Vector2(-8, -15), mod)
+	draw_texture(frames[frame], Vector2(-8, -15), mod)
+	if tool != "":
+		var ttex: Texture2D = Art.tool_tex(tool, faction)
+		if tool == "basket":
+			draw_texture(ttex, HAND + Vector2(-2, -1))
+		else:
+			draw_set_transform_matrix(base * Transform2D(_tool_angle(), HAND))
+			draw_texture(ttex, Vector2(-3, -ttex.get_height() + 1))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	if carry > 0.0:
-		draw_rect(Rect2(3, -7, 3, 3), Data.RES_COLORS[carry_type])
 	var tier: int = stats["tier"]
 	for i in tier:
 		draw_rect(Rect2(-4 + i * 2, -19, 1, 1), Color("ffd040"))
