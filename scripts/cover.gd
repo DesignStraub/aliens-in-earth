@@ -28,9 +28,15 @@ func _px_rect(p: Vector2, size: float, c: Color) -> void:
 	draw_rect(Rect2(q, Vector2(size, size)), c)
 
 
+func _bld(f: String, team: int, foot: Vector2, scale: float) -> void:
+	var tex := Art.building_tex(f, "town_center", team)
+	var sz := Vector2(tex.get_width(), tex.get_height()) * scale
+	draw_texture_rect(tex, Rect2(foot - Vector2(sz.x / 2.0, sz.y), sz), false)
+
+
 func _unit(f: String, k: String, team: int, pos: Vector2, scale: float, face_left := false, frame := 0) -> void:
 	var tex: Texture2D = Art.unit_frames(f, k, team)[frame]
-	var sz := Vector2(16, 16) * scale
+	var sz := Vector2(32, 32) * scale * 0.5
 	draw_set_transform(Vector2(pos.x, 0), 0.0, Vector2(-1 if face_left else 1, 1))
 	draw_texture_rect(tex, Rect2(Vector2(-sz.x / 2.0, pos.y - sz.y), sz), false)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
@@ -78,11 +84,11 @@ func _draw() -> void:
 		if x > 300 and x < 960:
 			continue
 		var tex := Art.resource_tex("tree", i % 2)
-		draw_texture_rect(tex, Rect2(x, GROUND - 40 + rng.randf_range(0, 20), 64, 64), false)
+		draw_texture_rect(tex, Rect2(x, GROUND - 72 + rng.randf_range(0, 20), 64, 96), false)
 	# Hauptgebäude der drei Völker
-	draw_texture_rect(Art.building_tex("mammals", "town_center", 0), Rect2(70, GROUND - 160 + 30, 192, 192), false)
-	draw_texture_rect(Art.building_tex("plants", "town_center", 2), Rect2(510, GROUND - 200 + 30, 240, 240), false)
-	draw_texture_rect(Art.building_tex("aliens", "town_center", 1), Rect2(1000, GROUND - 160 + 30, 192, 192), false)
+	_bld("mammals", 0, Vector2(166, GROUND + 50), 2.0)
+	_bld("plants", 2, Vector2(630, GROUND + 64), 2.0)
+	_bld("aliens", 1, Vector2(1096, GROUND + 50), 2.0)
 	# Armeen
 	var sc := 6.0
 	_unit("mammals", "cavalry", 0, Vector2(150, 900), sc, false, 1)

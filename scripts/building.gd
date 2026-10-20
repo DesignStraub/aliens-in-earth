@@ -36,7 +36,7 @@ func setup(w, k: String, pid: int, c: Vector2i, complete: bool) -> void:
 	max_hp = Data.building_hp(kind, w.players[pid]["techs"])
 	tex = Art.building_tex(faction, kind, pid)
 	# Ursprung unten links, damit die Y-Sortierung mit Einheiten passt
-	position = Vector2(c.x * 16, (c.y + size) * 16)
+	position = Vector2(c.x * Data.TILE, (c.y + size) * Data.TILE)
 	if info.get("walkable", false):
 		z_index = -1
 	if kind == "farm":
@@ -54,7 +54,7 @@ func rect() -> Rect2i:
 
 
 func center() -> Vector2:
-	return Vector2(cell) * 16.0 + Vector2(size, size) * 8.0
+	return Vector2(cell) * Data.TILE + Vector2(size, size) * Data.TILE * 0.5
 
 
 func aim_point() -> Vector2:
@@ -153,7 +153,7 @@ func _do_attack(delta: float) -> void:
 	if attack_t > 0.0:
 		return
 	var a: Dictionary = info["attack"]
-	var e = world.nearest_enemy_unit(owner_id, center(), float(a["range"]) * 16.0)
+	var e = world.nearest_enemy_unit(owner_id, center(), float(a["range"]) * Data.TILE)
 	if e == null:
 		attack_t = 0.3
 		return
@@ -165,27 +165,32 @@ func _do_attack(delta: float) -> void:
 
 
 func _draw() -> void:
-	var s := size * 16
+	var s := size * Data.TILE
 	var top := Vector2(0, -s)
+	var tex_top := Vector2(0, -tex.get_height())
+	if not info.get("walkable", false) and not info.get("wall", false):
+		draw_set_transform(Vector2(s * 0.55, -s * 0.12), 0.0, Vector2(1.0, 0.35))
+		draw_circle(Vector2.ZERO, s * 0.55, Color(0, 0, 0, 0.22))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	if built:
-		draw_texture(tex, top)
+		draw_texture(tex, tex_top)
 	else:
-		draw_texture(tex, top, Color(1, 1, 1, 0.45))
+		draw_texture(tex, tex_top, Color(1, 1, 1, 0.45))
 		# Baugerüst
-		for i in range(0, s + 1, 8):
-			draw_line(top + Vector2(i, 0), top + Vector2(i, s), Color(0.55, 0.4, 0.2, 0.8), 1.0)
-		draw_rect(Rect2(top + Vector2(2, -4), Vector2(s - 4, 2)), Color(0, 0, 0, 0.6))
-		draw_rect(Rect2(top + Vector2(2, -4), Vector2((s - 4) * progress, 2)), Color("f0d040"))
+		for i in range(0, s + 1, 12):
+			draw_line(top + Vector2(i, 0), top + Vector2(i, s), Color(0.55, 0.4, 0.2, 0.8), 2.0)
+		draw_rect(Rect2(tex_top + Vector2(2, -6), Vector2(s - 4, 3)), Color(0, 0, 0, 0.6))
+		draw_rect(Rect2(tex_top + Vector2(2, -6), Vector2((s - 4) * progress, 3)), Color("f0d040"))
 	if built and hp < max_hp * 0.5:
 		var seed_i := get_instance_id()
 		for i in 3:
 			var fx := float((seed_i / (i + 1)) % maxi(1, s - 6)) + 3.0
 			var fy := -s * 0.5 + float((seed_i / (i + 7)) % maxi(1, s / 2))
 			var flick := 1.0 + sin(fire_t * 12.0 + i) * 0.8
-			draw_rect(Rect2(Vector2(fx, fy - flick), Vector2(2, 2 + flick)), Color("ff8020"))
-			draw_rect(Rect2(Vector2(fx, fy - flick - 1), Vector2(1, 1)), Color("ffe060"))
+			draw_rect(Rect2(Vector2(fx, fy - flick * 2), Vector2(4, 4 + flick * 2)), Color("ff8020"))
+			draw_rect(Rect2(Vector2(fx + 1, fy - flick * 2 - 2), Vector2(2, 2)), Color("ffe060"))
 	if selected:
-		draw_rect(Rect2(top, Vector2(s, s)), Color(1, 1, 1, 0.85), false, 1.0)
+		draw_rect(Rect2(top, Vector2(s, s)), Color(1, 1, 1, 0.85), false, 2.0)
 	if selected or (hp < max_hp and built):
-		draw_rect(Rect2(top + Vector2(2, -7), Vector2(s - 4, 2)), Color(0.2, 0, 0))
-		draw_rect(Rect2(top + Vector2(2, -7), Vector2((s - 4) * hp / max_hp, 2)), Color(0.2, 0.9, 0.2) if owner_id == 0 else Color(0.95, 0.3, 0.2))
+		draw_rect(Rect2(tex_top + Vector2(2, -11), Vector2(s - 4, 3)), Color(0.2, 0, 0))
+		draw_rect(Rect2(tex_top + Vector2(2, -11), Vector2((s - 4) * hp / max_hp, 3)), Color(0.2, 0.9, 0.2) if owner_id == world.human else Color(0.95, 0.3, 0.2))

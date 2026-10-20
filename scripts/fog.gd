@@ -9,7 +9,7 @@ var data := PackedByteArray()
 
 func setup() -> void:
 	centered = false
-	scale = Vector2(16, 16)
+	scale = Vector2(Data.TILE, Data.TILE)
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	z_index = 10
 	data.resize(world.W * world.H * 4)

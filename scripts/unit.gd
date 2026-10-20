@@ -4,7 +4,6 @@ extends Node2D
 enum S { IDLE, MOVE, GATHER, RETURN, BUILD, ATTACK }
 
 const NONE := Vector2i(-1, -1)
-const HAND := Vector2(4, -7)
 const TOOL_FOR := {"tree": "axe", "gold": "pick", "stone": "pick", "berry": "basket", "farm": "hoe"}
 const WORK_FX := {
 	"axe": ["chop", "chips", Color("b08050")],
@@ -14,7 +13,8 @@ const WORK_FX := {
 	"hammer": ["build", "dust", Color("c8b890")],
 }
 
-const RADIUS := {"villager": 5.0, "spear": 5.5, "archer": 5.5, "cavalry": 7.5, "siege": 8.0}
+const RADIUS := {"villager": 9.0, "spear": 10.0, "archer": 10.0, "cavalry": 15.0, "siege": 16.0}
+const T := Data.TILE
 
 var is_building := false
 var radius := 4.5
@@ -44,7 +44,9 @@ var fails := 0
 var selected := false
 var frames: Array = []
 var tex: Texture2D
-var flip := false
+var face := Vector2(0, 1)
+## Mit Shift+Rechtsklick angehängte Aufgaben
+var cmd_queue: Array = []
 var anim_t := 0.0
 var hit_flash := 0.0
 var working := false
@@ -84,7 +86,7 @@ func cell() -> Vector2i:
 
 
 func aim_point() -> Vector2:
-	return position + Vector2(0, -5)
+	return position + Vector2(0, -12)
 
 
 func is_military() -> bool:
@@ -93,7 +95,7 @@ func is_military() -> bool:
 
 func reach() -> float:
 	var r: float = stats["range"]
-	return r * 16.0 if r > 0.0 else 11.0
+	return r * T if r > 0.0 else 22.0
 
 
 ## Am Arbeitsplatz (oder auf den letzten Schritten dorthin) wird nicht geschoben.
@@ -118,6 +120,48 @@ func _reset() -> void:
 	saved_target = null
 	farm = null
 	fails = 0
+
+
+## Befehl ausführen oder (queued) hinten anhängen, falls die Einheit beschäftigt ist.
+func give(cmd: Dictionary, queued := false) -> void:
+	if queued and (state != S.IDLE or not cmd_queue.is_empty()):
+		cmd_queue.append(cmd)
+		return
+	if not queued:
+		cmd_queue.clear()
+	_exec(cmd)
+
+
+func _exec(cmd: Dictionary) -> void:
+	match cmd["type"]:
+		"move":
+			cmd_move(cmd["pos"])
+		"attack":
+			cmd_attack(cmd["target"])
+		"gather":
+			cmd_gather(cmd["cell"])
+		"farm":
+			if world.valid(cmd["target"]):
+				cmd_farm(cmd["target"])
+		"build":
+			if world.valid(cmd["target"]):
+				cmd_build(cmd["target"])
+		"return":
+			if world.valid(cmd["target"]):
+				cmd_return(cmd["target"])
+
+
+## Position eines Befehls (für die Wegpunkt-Anzeige)
+static func cmd_pos(world_ref, cmd: Dictionary) -> Vector2:
+	match cmd["type"]:
+		"move":
+			return cmd["pos"]
+		"gather":
+			return world_ref.cell_center(cmd["cell"])
+	var t = cmd.get("target")
+	if world_ref.valid(t):
+		return t.aim_point() if not t.is_building else t.center()
+	return Vector2.INF
 
 
 func cmd_move(pos: Vector2) -> void:
@@ -181,9 +225,11 @@ func _process(delta: float) -> void:
 		return
 	attack_t = maxf(0.0, attack_t - delta)
 	hit_flash = maxf(0.0, hit_flash - delta)
-	lunge = lunge.move_toward(Vector2.ZERO, 20.0 * delta)
+	lunge = lunge.move_toward(Vector2.ZERO, 40.0 * delta)
 	anim_t += delta
 	working = false
+	if state == S.IDLE and not cmd_queue.is_empty():
+		_exec(cmd_queue.pop_front())
 	match state:
 		S.IDLE:
 			_idle(delta)
@@ -216,19 +262,19 @@ func _follow(delta: float) -> bool:
 			path = world.find_path(owner_id, cell(), world.to_cell(move_goal), true)
 		return path.is_empty() and state == S.MOVE
 	var d := tgt - position
-	var step: float = float(stats["speed"]) * 16.0 * delta
+	var step: float = float(stats["speed"]) * T * delta
 	if d.length() <= step:
 		position = tgt
 		path.pop_front()
 	else:
 		position += d / d.length() * step
 		if absf(d.x) > 0.3:
-			flip = d.x < 0.0
+			face = d
 	return path.is_empty()
 
 
 func _near_rect(r: Rect2i) -> bool:
-	return world.dist_to_rect(position, r) <= 16.0
+	return world.dist_to_rect(position, r) <= 30.0
 
 
 func _idle(delta: float) -> void:
@@ -238,7 +284,7 @@ func _idle(delta: float) -> void:
 	if scan_t > 0.0:
 		return
 	scan_t = 0.5
-	var sight: float = float(stats["sight"]) * 16.0
+	var sight: float = float(stats["sight"]) * T
 	var e = world.nearest_enemy_unit(owner_id, position, sight)
 	if e == null:
 		e = world.nearest_enemy_building(owner_id, position, sight, kind == "siege")
@@ -265,7 +311,7 @@ func _gather(delta: float) -> void:
 			if path.is_empty():
 				state = S.IDLE
 			else:
-				path[-1] = fc + Vector2(randf_range(-6, 6), randf_range(-6, 6))
+				path[-1] = fc + Vector2(randf_range(-12, 12), randf_range(-12, 12))
 			return
 		if carry_type != "food":
 			carry = 0.0
@@ -292,7 +338,7 @@ func _gather(delta: float) -> void:
 			carry_type = r["type"]
 		var amt := minf(_rate(gather_kind) * delta, cap - carry)
 		carry += world.take_resource(gather_cell, amt)
-		flip = world.cell_center(gather_cell).x < position.x
+		face = world.cell_center(gather_cell) - position
 		working = true
 	if carry >= cap - 0.01:
 		_go_return()
@@ -364,13 +410,16 @@ func _build(delta: float) -> void:
 			state = S.IDLE
 		return
 	target.work(delta)
-	flip = target.center().x < position.x
+	face = target.center() - position
 	working = true
 
 
 func _after_build() -> void:
 	var b = target
 	target = null
+	if not cmd_queue.is_empty():
+		state = S.IDLE
+		return
 	if b.kind == "farm" and world.farmers(b) == 0:
 		cmd_farm(b)
 		return
@@ -380,7 +429,7 @@ func _after_build() -> void:
 			if c.x >= 0:
 				cmd_gather(c)
 				return
-	var nb = world.nearest_unfinished(owner_id, position, 160.0)
+	var nb = world.nearest_unfinished(owner_id, position, T * 10.0)
 	if nb != null:
 		cmd_build(nb)
 		return
@@ -402,7 +451,7 @@ func _attack(delta: float) -> void:
 			return
 	if _in_range(target):
 		path = []
-		flip = target.aim_point().x < position.x
+		face = target.aim_point() - aim_point()
 		if attack_t <= 0.0:
 			attack_t = stats["cd"]
 			_strike(target)
@@ -453,12 +502,12 @@ func _strike(t) -> void:
 	var dir: Vector2 = (t.aim_point() - aim_point()).normalized()
 	if float(stats["range"]) > 0.0:
 		world.spawn_projectile(self, t, dmg, kind == "siege")
-		lunge = -dir * 1.5
+		lunge = -dir * 3.0
 		var snd: String = "siege" if kind == "siege" else {"mammals": "arrow", "aliens": "beam", "plants": "spore"}[faction]
 		world.play_sound(snd, position)
 	else:
 		world.apply_damage(t, dmg, self)
-		lunge = dir * 3.0
+		lunge = dir * 6.0
 		world.play_sound("melee", position)
 
 
@@ -501,74 +550,60 @@ func _animate_work(delta: float) -> void:
 		var tool := current_tool()
 		if WORK_FX.has(tool):
 			var fx: Array = WORK_FX[tool]
-			var hit := position + Vector2(-7 if flip else 7, -4)
+			var hit := position + face.normalized() * 14.0 + Vector2(0, -8)
 			world.spawn_fx(fx[1], hit, fx[2], true)
+			if gather_kind != "farm" and state == S.GATHER:
+				world.shake_resource(gather_cell)
 			world.play_sound(fx[0], position, -9.0)
 
 
-func _tool_angle() -> float:
-	if not working:
-		return 0.5
-	# langsam ausholen, schnell zuschlagen
-	if work_phase < 0.7:
-		return lerpf(0.9, -1.6, work_phase / 0.7)
-	return lerpf(-1.6, 0.9, (work_phase - 0.7) / 0.3)
-
-
-func _draw_bundle() -> void:
-	var fill := clampf(carry / carry_cap(), 0.3, 1.0)
-	var h := 2.0 + 3.0 * fill
-	var r := Rect2(-7, -8 - h, 5, h)
-	match carry_type:
-		"wood":
-			draw_rect(r, Color("8a5a30"))
-			draw_rect(Rect2(r.position + Vector2(0, 1), Vector2(5, 1)), Color("5a3a1a"))
-			draw_rect(Rect2(r.position + Vector2(-1, h - 2), Vector2(7, 1)), Color("b08050"))
-		"gold":
-			draw_rect(r, Color("c89a30"))
-			draw_rect(Rect2(r.position + Vector2(1, 1), Vector2(2, 1)), Color("fff0a0"))
-		"stone":
-			draw_rect(r, Color("9a9aa2"))
-			draw_rect(Rect2(r.position + Vector2(2, 1), Vector2(2, 1)), Color("dcdce4"))
-		_:
-			draw_rect(r, Color("a07040"))
-			draw_rect(Rect2(r.position + Vector2(1, 0), Vector2(3, 2)), Color("d03060"))
+## Blickrichtung als Sprite-Richtung: e (rechts, links = gespiegelt), s, n
+func _facing() -> Array:
+	if kind == "siege" or absf(face.x) >= absf(face.y) * 0.8:
+		return ["e", face.x < 0.0]
+	return ["s" if face.y > 0.0 else "n", false]
 
 
 func _draw() -> void:
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0, 0.45))
-	draw_circle(Vector2.ZERO, 4.5, Color(0, 0, 0, 0.28))
+	draw_set_transform(Vector2(0, -1), 0.0, Vector2(1.0, 0.42))
+	draw_circle(Vector2.ZERO, radius, Color(0, 0, 0, 0.3))
 	if selected:
-		draw_arc(Vector2.ZERO, 7.0, 0.0, TAU, 20, Color(1, 1, 1, 0.9), 1.0)
+		draw_arc(Vector2.ZERO, radius + 4.0, 0.0, TAU, 24, Color(1, 1, 1, 0.9), 2.0)
+	var fd := _facing()
+	var dir: String = fd[0]
+	var mirrored: bool = fd[1]
 	var moving := not path.is_empty()
+	var carrying := carry > 0.0 and not working and kind == "villager"
+	var pose := "idle"
 	var frame := 0
+	var tool := ""
 	var bob := 0.0
-	if moving and frames.size() >= 3:
-		var step := int(anim_t * 2.2 * float(stats["speed"])) % 4
-		frame = [1, 0, 2, 0][step]
-		bob = 1.0 if step % 2 == 0 else 0.0
-	elif state == S.IDLE:
-		bob = 1.0 if fmod(anim_t, 2.4) < 0.25 else 0.0
-	var tool := current_tool()
-	if tool == "basket" and working:
-		bob = 1.0 if work_phase > 0.5 else 0.0
-	var base := Transform2D(0.0, Vector2(-1.0 if flip else 1.0, 1.0), 0.0, Vector2(lunge.x, lunge.y - bob))
-	draw_set_transform_matrix(base)
-	if carry > 0.0 and not working:
-		_draw_bundle()
+	if working:
+		pose = "work"
+		tool = current_tool()
+		frame = 0 if work_phase < 0.35 else (1 if work_phase < 0.7 else (2 if work_phase < 0.88 else 3))
+	elif state == S.ATTACK and path.is_empty() and world.valid(target):
+		pose = "attack"
+		var cd: float = stats["cd"]
+		if cd - attack_t < 0.18:
+			frame = 2
+		elif attack_t < 0.4:
+			frame = 1
+	elif moving:
+		pose = "carry_walk" if carrying else "walk"
+		frame = int(anim_t * 2.4 * float(stats["speed"])) % 4
+		bob = 1.0 if frame % 2 == 0 else 0.0
+	else:
+		pose = "carry_idle" if carrying else "idle"
+		bob = 1.0 if fmod(anim_t, 2.4) < 0.3 else 0.0
+	var tex: Texture2D = Art.unit_frame(faction, kind, owner_id, dir, pose, frame, tool, carry_type if carrying else "")
 	var mod := Color(1, 0.55, 0.55) if hit_flash > 0.0 else Color.WHITE
-	draw_texture(frames[frame], Vector2(-8, -15), mod)
-	if tool != "":
-		var ttex: Texture2D = Art.tool_tex(tool, faction)
-		if tool == "basket":
-			draw_texture(ttex, HAND + Vector2(-2, -1))
-		else:
-			draw_set_transform_matrix(base * Transform2D(_tool_angle(), HAND))
-			draw_texture(ttex, Vector2(-3, -ttex.get_height() + 1))
+	draw_set_transform(Vector2(lunge.x, lunge.y - bob), 0.0, Vector2(-1.0 if mirrored else 1.0, 1.0))
+	draw_texture(tex, Vector2(-16, -31), mod)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	var tier: int = stats["tier"]
 	for i in tier:
-		draw_rect(Rect2(-4 + i * 2, -19, 1, 1), Color("ffd040"))
+		draw_rect(Rect2(-7 + i * 4, -40, 3, 3), Color("ffd040"))
 	if selected or hp < max_hp:
-		draw_rect(Rect2(-6, -17, 12, 1.5), Color(0.2, 0, 0))
-		draw_rect(Rect2(-6, -17, 12.0 * hp / max_hp, 1.5), Color(0.2, 0.9, 0.2) if owner_id == 0 else Color(0.95, 0.3, 0.2))
+		draw_rect(Rect2(-12, -36, 24, 3), Color(0.2, 0, 0))
+		draw_rect(Rect2(-12, -36, 24.0 * hp / max_hp, 3), Color(0.2, 0.9, 0.2) if owner_id == world.human else Color(0.95, 0.3, 0.2))

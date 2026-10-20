@@ -6,7 +6,7 @@ var target
 var attacker
 var dmg := 0.0
 var big := false
-var speed := 210.0
+var speed := 420.0
 var color := Color.WHITE
 var dir := Vector2.RIGHT
 
@@ -14,7 +14,7 @@ var dir := Vector2.RIGHT
 func _ready() -> void:
 	z_index = 4
 	if big:
-		speed = 140.0
+		speed = 280.0
 
 
 func _process(delta: float) -> void:
@@ -34,7 +34,7 @@ func _process(delta: float) -> void:
 
 func _draw() -> void:
 	if big:
-		draw_circle(Vector2.ZERO, 2.5, color.darkened(0.3))
-		draw_circle(Vector2(-0.5, -0.5), 1.2, color)
+		draw_circle(Vector2.ZERO, 5.0, color.darkened(0.3))
+		draw_circle(Vector2(-1, -1), 2.5, color)
 	else:
-		draw_line(-dir * 4.0, dir * 1.5, color, 1.0)
+		draw_line(-dir * 8.0, dir * 3.0, color, 2.0)

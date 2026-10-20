@@ -276,7 +276,7 @@ func _maybe_dropoffs(p: Dictionary, tc, vills: Array) -> void:
 		if c.x < 0:
 			continue
 		var drop = world.nearest_dropoff(pid, type, world.cell_center(c))
-		if drop != null and world.dist_to_rect(world.cell_center(c), drop.rect()) < 16.0 * 6.0:
+		if drop != null and world.dist_to_rect(world.cell_center(c), drop.rect()) < Data.TILE * 6.0:
 			continue
 		var kind := "mill" if type == "food" else "camp"
 		if _try_build(vills, kind, c, 2.0, 5.0):
@@ -393,12 +393,12 @@ func _war(p: Dictionary, tc, army: Array) -> void:
 	var threat = null
 	for b in world.buildings:
 		if b.owner_id == pid and not b.info.get("wall", false):
-			threat = world.nearest_enemy_unit(pid, b.center(), 16.0 * 10.0)
+			threat = world.nearest_enemy_unit(pid, b.center(), Data.TILE * 10.0)
 			if threat != null:
 				break
 	if threat != null:
 		for u in army:
-			if u.position.distance_to(home) < 16.0 * 30.0 and (u.state == UnitScript.S.IDLE or u.state == UnitScript.S.MOVE):
+			if u.position.distance_to(home) < Data.TILE * 30.0 and (u.state == UnitScript.S.IDLE or u.state == UnitScript.S.MOVE):
 				u.cmd_attack(threat)
 		return
 	var age := int(p["age"])
@@ -410,9 +410,9 @@ func _war(p: Dictionary, tc, army: Array) -> void:
 				u.cmd_attack(tgt)
 	# Untätige Truppen im Feindesland greifen weiter an
 	for u in army:
-		if u.state == UnitScript.S.IDLE and u.position.distance_to(home) > 16.0 * 25.0:
-			var t2 = world.nearest_enemy_building(pid, u.position, 16.0 * 80.0, false)
+		if u.state == UnitScript.S.IDLE and u.position.distance_to(home) > Data.TILE * 25.0:
+			var t2 = world.nearest_enemy_building(pid, u.position, Data.TILE * 80.0, false)
 			if t2 == null:
-				t2 = world.nearest_enemy_building(pid, u.position, 16.0 * 80.0, true)
+				t2 = world.nearest_enemy_building(pid, u.position, Data.TILE * 80.0, true)
 			if t2 != null:
 				u.cmd_attack(t2)

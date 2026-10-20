@@ -22,7 +22,9 @@ Oder im Terminal:
 - **Bis zu 4 Spieler**: Jeder gegen jeden oder alle gegen dich, 3 Kartengrößen, 3 KI-Schwierigkeiten
 - **Nebel des Krieges**: unerforschtes Land ist schwarz, außer Sicht wird es abgedunkelt
 - **17 Technologien** in Hauptsitz, Sammellager, Kornspeicher, Kaserne, Schützenhof, Reiterhof und Kriegswerk (Gezahnte Klinge, Zähe Kittel, Glutschmiede, Bollwerkbau, Kometenstaub …)
-- **Animationen**: Laufzyklen; Dorfbewohner zeigen mit Werkzeug, was sie tun (Axt, Spitzhacke, Hacke, Korb, Hammer) und tragen ihre Ladung sichtbar auf dem Rücken. Dazu Späne, Funken und Staub
+- **32-px-Pixelgrafik mit Schattierung**: Figuren werden aus Körperteilen gezeichnet, schauen in ihre Lauf- bzw. Arbeitsrichtung (vorn, hinten, seitlich) und halten ihr Werkzeug in der Hand. Die Axt holt aus und trifft den Baum, Arbeiter tragen ihre Ladung über dem Kopf zum Lager. Dazu Späne, Funken und Staub
+- **Lebendige Ressourcen**: Bäume wackeln beim Hacken, werden sichtbar lichter, fallen um und hinterlassen einen Stumpf, der nach einer Weile verschwindet. Minen und Beerensträucher schrumpfen ebenfalls
+- **Befehlsketten**: Mit Shift+Rechtsklick Aufgaben aneinanderreihen (bauen, sammeln, laufen, angreifen); die Wegpunkte werden angezeigt
 - **Sound**: alle Effekte werden zur Laufzeit synthetisiert (Hacken, Bergbau, Bauen, Kampf, Schüsse je Volk, Fanfaren, Angriffsalarm)
 - **Titelbildschirm, Spiel-Einrichtung, Einstellungen** (Oberflächen-Skalierung, Vollbild, Lautstärke, Kamera), Pausenmenü
 - **Speichern & Laden** (F5 oder Menü)
@@ -34,10 +36,11 @@ Oder im Terminal:
 |---|---|
 | Linksklick / Ziehen | Auswählen (Shift: hinzufügen) |
 | Rechtsklick | Bewegen, sammeln, bauen, reparieren, angreifen, Sammelpunkt |
+| Shift + Rechtsklick | Befehl an die Aufgabenliste anhängen |
 | WASD / Pfeile / Bildschirmrand / mittlere Maustaste | Kamera |
 | Mausrad | Zoom |
 | H | Hauptsitz |
-| . (Punkt) | Nächster untätiger Arbeiter |
+| . (Punkt) oder „Untätig“-Knopf | Nächster untätiger Arbeiter |
 | Entf | Auswahl löschen |
 | F5 | Speichern |
 | Esc / F10 | Pausenmenü |

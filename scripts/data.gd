@@ -1,7 +1,7 @@
 extends Node
 ## Alle Spielwerte an einem Ort: Völker, Zeitalter, Einheiten, Gebäude, Konter.
 
-const TILE := 16
+const TILE := 32
 const MAP_W := 96
 const MAP_H := 96
 const CARRY := 10.0

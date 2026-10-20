@@ -13,6 +13,7 @@ var top_bar: Control
 var bottom_bar: Control
 var res_labels := {}
 var pop_label: Label
+var idle_btn: Button
 var age_label: Label
 var time_label: Label
 var info_icon: TextureRect
@@ -90,6 +91,11 @@ func _build() -> void:
 		res_labels[k] = l
 	pop_label = Label.new()
 	hb.add_child(pop_label)
+	idle_btn = Button.new()
+	idle_btn.focus_mode = Control.FOCUS_NONE
+	idle_btn.tooltip_text = "Untätige Arbeiter durchschalten (Taste .)"
+	idle_btn.pressed.connect(func(): world.select_idle_villager())
+	hb.add_child(idle_btn)
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hb.add_child(spacer)
@@ -563,6 +569,11 @@ func _update_top() -> void:
 	for k in Data.RES:
 		res_labels[k].text = "%s %d" % [Data.RES_NAMES[k], int(p["res"][k])]
 	pop_label.text = "Bevölkerung %d/%d" % [world.pop(_me()), world.pop_cap(_me())]
+	var idle: int = world.idle_villagers(_me()).size()
+	idle_btn.text = "Untätig: %d" % idle
+	idle_btn.icon = Art.unit_tex(world.players[_me()]["faction"], "villager", _me())
+	idle_btn.add_theme_color_override("font_color", Color("ffd060") if idle > 0 else C_TEXT)
+	idle_btn.modulate = Color.WHITE if idle > 0 else Color(1, 1, 1, 0.6)
 	var age_txt: String = Data.AGES[p["age"]]["name"]
 	if p["aging"]:
 		age_txt += "  →  Aufstieg läuft…"

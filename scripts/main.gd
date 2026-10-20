@@ -12,7 +12,7 @@ const FogScript = preload("res://scripts/fog.gd")
 const AIScript = preload("res://scripts/ai.gd")
 const HudScript = preload("res://scripts/hud.gd")
 
-const T := 16
+const T := Data.TILE
 const WATER := 1
 const NONE := Vector2i(-1, -1)
 const DIRS8 := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 1), Vector2i(-1, 1), Vector2i(1, -1), Vector2i(-1, -1)]
@@ -61,12 +61,15 @@ var drag_start := Vector2.ZERO
 var wall_start := NONE
 var check_t := 0.0
 var minimap_dirty := true
+var stumps := {}
+var stump_t := 5.0
 var stat_t := 0.0
 var _cursor_key := ""
 
 
 func _ready() -> void:
 	randomize()
+	RenderingServer.set_default_clear_color(Color("140c08"))
 	if "--cover" in OS.get_cmdline_user_args():
 		get_window().content_scale_mode = Window.CONTENT_SCALE_MODE_DISABLED
 		get_window().content_scale_factor = 1.0
@@ -74,7 +77,7 @@ func _ready() -> void:
 		add_child(preload("res://scripts/cover.gd").new())
 		return
 	camera = Camera2D.new()
-	camera.zoom = Vector2(3, 3)
+	camera.zoom = Vector2(2, 2)
 	add_child(camera)
 	hud = HudScript.new()
 	hud.world = self
@@ -90,6 +93,70 @@ func _ready() -> void:
 	elif "--uitest" in args:
 		start_game({"faction": "plants", "opponents": ["aliens"], "teams": "ffa", "map_size": 0, "fog": true, "difficulty": 1})
 		_ui_test()
+	elif "--queuetest" in args:
+		Engine.time_scale = 6.0
+		start_game({"faction": "mammals", "opponents": ["aliens"], "teams": "ffa", "map_size": 0, "fog": false, "difficulty": 1})
+		var tc = buildings[0]
+		var v = units.filter(func(u) -> bool: return u.owner_id == 0 and u.kind == "villager")[0]
+		var spot := NONE
+		for i in 300:
+			var c: Vector2i = tc.cell + Vector2i(randi_range(-7, 7), randi_range(-7, 7))
+			if can_place("house", c):
+				spot = c
+				break
+		pay(0, Data.building_cost("house", "mammals"))
+		var house = place_building("house", spot, 0, false)
+		var tree := find_resource_near("tree", tc.cell, 25)
+		v.give({"type": "build", "target": house}, false)
+		v.give({"type": "gather", "cell": tree}, true)
+		print("Aufgaben in der Liste: ", v.cmd_queue.size())
+		var wood0: float = players[0]["res"]["wood"]
+		var last := -1
+		var seen := []
+		while game_time < 90.0:
+			await get_tree().process_frame
+			if v.state != last:
+				last = v.state
+				seen.append(UnitScript.S.keys()[v.state])
+		print("Zustände: ", " > ".join(PackedStringArray(seen)))
+		print("Haus fertig: ", house.built, "  Holz vorher/nachher: ", int(wood0), " / ", int(players[0]["res"]["wood"]))
+		get_tree().quit()
+	elif "--spritesheet" in args:
+		# Entwickler: alle Figuren-Frames als Bild (sprites.png)
+		var cols := [["s", "idle", 0, ""], ["s", "walk", 0, ""], ["e", "idle", 0, ""], ["e", "walk", 0, ""], ["e", "walk", 2, ""], ["n", "idle", 0, ""],
+			["e", "work", 1, "axe"], ["e", "work", 3, "axe"], ["s", "work", 1, "pick"], ["s", "work", 3, "pick"], ["e", "attack", 1, ""], ["e", "attack", 2, ""], ["e", "carry_walk", 0, "wood"], ["s", "carry_idle", 0, "gold"]]
+		var kinds := ["villager", "spear", "archer", "cavalry", "siege"]
+		var facs := ["mammals", "aliens", "plants"]
+		var sc := 3
+		var sheet := Image.create_empty(cols.size() * 32 * sc, kinds.size() * facs.size() * 32 * sc, false, Image.FORMAT_RGBA8)
+		sheet.fill(Color("5a9a3a"))
+		var row := 0
+		for f in facs:
+			for k in kinds:
+				for ci in cols.size():
+					var c: Array = cols[ci]
+					var pose: String = c[1]
+					var tool := ""
+					var carry := ""
+					if pose == "work":
+						tool = c[3]
+					elif pose.begins_with("carry"):
+						carry = c[3]
+					var img: Image = Art.unit_frame(f, k, row % 4, c[0], pose, c[2], tool, carry).get_image()
+					img.resize(32 * sc, 32 * sc, Image.INTERPOLATE_NEAREST)
+					sheet.blend_rect(img, Rect2i(0, 0, 32 * sc, 32 * sc), Vector2i(ci * 32 * sc, row * 32 * sc))
+				row += 1
+		sheet.save_png("res://shot_sprites.png")
+		var res := Image.create_empty(32 * 3 * 7, 48 * 3, false, Image.FORMAT_RGBA8)
+		res.fill(Color("5a9a3a"))
+		var items := [["tree", 0, 0], ["tree", 0, 1], ["tree", 0, 2], ["tree", 1, 0], ["tree", 1, 2], ["gold", 0, 0], ["berry", 0, 1]]
+		for i in items.size():
+			var it: Array = items[i]
+			var im: Image = Art.resource_tex(it[0], it[1], it[2]).get_image()
+			im.resize(im.get_width() * 3, im.get_height() * 3, Image.INTERPOLATE_NEAREST)
+			res.blend_rect(im, Rect2i(Vector2i.ZERO, im.get_size()), Vector2i(i * 96, 144 - im.get_height()))
+		res.save_png("res://shot_res.png")
+		get_tree().quit()
 	elif "--colltest" in args:
 		start_game({"faction": "aliens", "opponents": ["plants"], "teams": "ffa", "map_size": 0, "fog": false, "difficulty": 1})
 		var tc = buildings[0]
@@ -98,7 +165,7 @@ func _ready() -> void:
 		for i in 10:
 			group.append(spawn_unit(["spear", "archer", "cavalry", "villager"][i % 4], 0, spot))
 		camera.position = spot
-		camera.zoom = Vector2(6, 6)
+		camera.zoom = Vector2(3, 3)
 		await get_tree().create_timer(2.0).timeout
 		var md := 1e9
 		for a in group:
@@ -181,15 +248,12 @@ func _build_world(w: int, h: int, terr: PackedByteArray, res: Dictionary, pl: Ar
 	terrain = terr
 	resources = res
 	players = pl
-	var ts := Sprite2D.new()
-	ts.centered = false
-	ts.texture = ImageTexture.create_from_image(Art.build_terrain_image(terrain, W, H, seed_val))
-	ts.z_index = -10
-	add_child(ts)
+	add_child(_make_terrain())
 	res_layer = ResLayerScript.new()
 	res_layer.world = self
 	res_layer.z_index = -5
 	add_child(res_layer)
+	res_layer.build()
 	entities = Node2D.new()
 	entities.y_sort_enabled = true
 	add_child(entities)
@@ -210,6 +274,28 @@ func _build_world(w: int, h: int, terr: PackedByteArray, res: Dictionary, pl: Ar
 	overlay.z_index = 11
 	add_child(overlay)
 	_setup_astar()
+
+
+## Gelände als TileMapLayer aus einem prozedural erzeugten Kachelsatz
+func _make_terrain() -> TileMapLayer:
+	var tset := TileSet.new()
+	tset.tile_size = Vector2i(T, T)
+	var src := TileSetAtlasSource.new()
+	src.texture = ImageTexture.create_from_image(Art.terrain_atlas(seed_val))
+	src.texture_region_size = Vector2i(T, T)
+	for row in 3:
+		for v in 8:
+			src.create_tile(Vector2i(v, row))
+	tset.add_source(src, 0)
+	var tm := TileMapLayer.new()
+	tm.tile_set = tset
+	tm.z_index = -10
+	for y in H:
+		for x in W:
+			var t := terrain[y * W + x]
+			var row := 0 if t == 0 else (1 if t == 1 else 2)
+			tm.set_cell(Vector2i(x, y), 0, Vector2i(absi(hash(Vector2i(x, y) + Vector2i(seed_val, 0))) % 8, row))
+	return tm
 
 
 func _spawn_ais(saved: Dictionary) -> void:
@@ -642,16 +728,16 @@ func spawn_point(b) -> Vector2:
 			cands.append(c)
 	if cands.is_empty():
 		return cell_center(nearest_free(b.owner_id, b.cell))
-	var goal: Vector2 = b.rally if b.has_rally else b.center() + Vector2(0, 100)
+	var goal: Vector2 = b.rally if b.has_rally else b.center() + Vector2(0, 6 * T)
 	cands.sort_custom(func(p: Vector2i, q: Vector2i) -> bool: return cell_center(p).distance_squared_to(goal) < cell_center(q).distance_squared_to(goal))
-	return cell_center(cands[0]) + Vector2(randf_range(-3, 3), randf_range(-3, 3))
+	return cell_center(cands[0]) + Vector2(randf_range(-6, 6), randf_range(-6, 6))
 
 
 # ---------------------------------------------------------------- Abfragen
 
 func unit_at(pos: Vector2):
 	var best = null
-	var bd := 9.0
+	var bd := 18.0
 	for u in units:
 		if not u.visible:
 			continue
@@ -755,7 +841,7 @@ func find_resource_near(kind: String, c: Vector2i, radius: int, exclude := NONE,
 			if d < bd and _has_free_neighbor(n):
 				var safe := true
 				for z in danger:
-					if cell_center(n).distance_to(z) < 16.0 * 10.0:
+					if cell_center(n).distance_to(z) < T * 10.0:
 						safe = false
 						break
 				if safe:
@@ -769,13 +855,32 @@ func take_resource(c: Vector2i, amt: float) -> float:
 	if r == null:
 		return 0.0
 	var got := minf(amt, float(r["amount"]))
+	var stage_before := Art.res_stage(r)
 	r["amount"] = float(r["amount"]) - got
 	if float(r["amount"]) <= 0.001:
+		if r["kind"] == "tree":
+			res_layer.fall(c, r, -1.0 if randf() < 0.5 else 1.0)
+			stumps[c] = game_time + 90.0
+			play_sound("collapse", cell_center(c), -14.0)
 		resources.erase(c)
 		refresh_cell(c)
-		res_layer.queue_redraw()
+		res_layer.mark(c)
 		minimap_dirty = true
+	elif Art.res_stage(r) != stage_before:
+		res_layer.mark(c)
 	return got
+
+
+func shake_resource(c: Vector2i) -> void:
+	if is_pos_visible(cell_center(c)):
+		res_layer.shake(c)
+
+
+func _expire_stumps() -> void:
+	for c in stumps.keys():
+		if game_time > float(stumps[c]):
+			stumps.erase(c)
+			res_layer.mark(c)
 
 
 # ---------------------------------------------------------------- Wirtschaft
@@ -1036,12 +1141,14 @@ func call_for_help(victim, attacker) -> void:
 		return
 	var pos: Vector2 = victim.aim_point()
 	for u in units:
-		if u.owner_id == victim.owner_id and u.is_military() and u.state == UnitScript.S.IDLE and u.position.distance_to(pos) < 160.0:
+		if u.owner_id == victim.owner_id and u.is_military() and u.state == UnitScript.S.IDLE and u.position.distance_to(pos) < T * 10.0:
 			u.cmd_attack(attacker)
 
 
 ## Rechtsklick-Logik, auch für Sammelpunkte und die KI.
-func command_units(list: Array, pos: Vector2) -> void:
+## Rechtsklick-Logik, auch für Sammelpunkte und die KI.
+## queued = Shift gedrückt: Befehl wird hinten an die Aufgabenliste gehängt.
+func command_units(list: Array, pos: Vector2, queued := false) -> void:
 	if list.is_empty():
 		return
 	var pid: int = list[0].owner_id
@@ -1049,41 +1156,46 @@ func command_units(list: Array, pos: Vector2) -> void:
 	var eu = unit_at(pos)
 	if eu != null and is_enemy(pid, eu.owner_id):
 		for u in list:
-			u.cmd_attack(eu)
+			u.give({"type": "attack", "target": eu}, queued)
 		return
 	var b = occ.get(c)
-	if b != null:
+	if b != null and b.visible:
 		if is_enemy(pid, b.owner_id):
 			for u in list:
-				u.cmd_attack(b)
+				u.give({"type": "attack", "target": b}, queued)
 			return
-		if b.owner_id != pid:
-			for i in list.size():
-				list[i].cmd_move(pos)
+		if b.owner_id == pid:
+			for u in list:
+				if u.kind != "villager":
+					u.give({"type": "move", "pos": pos}, queued)
+				elif not b.built or (b.hp < b.max_hp and b.kind != "farm"):
+					u.give({"type": "build", "target": b}, queued)
+				elif b.kind == "farm":
+					u.give({"type": "farm", "target": b}, queued)
+				elif u.carry > 0.0 and b.accepts(u.carry_type):
+					u.give({"type": "return", "target": b}, queued)
+				else:
+					u.give({"type": "move", "pos": pos}, queued)
 			return
-		for u in list:
-			if u.kind != "villager":
-				u.cmd_move(pos)
-			elif not b.built or (b.hp < b.max_hp and b.kind != "farm"):
-				u.cmd_build(b)
-			elif b.kind == "farm":
-				u.cmd_farm(b)
-			elif u.carry > 0.0 and b.accepts(u.carry_type):
-				u.cmd_return(b)
-			else:
-				u.cmd_move(pos)
-		return
 	if resources.has(c):
 		for u in list:
 			if u.kind == "villager":
-				u.cmd_gather(c)
+				u.give({"type": "gather", "cell": c}, queued)
 			else:
-				u.cmd_move(pos)
+				u.give({"type": "move", "pos": pos}, queued)
 		return
 	var cells := formation_cells(pid, c, list.size())
 	for i in list.size():
-		var p := cell_center(cells[i]) if i > 0 or list.size() > 1 else pos
-		list[i].cmd_move(p)
+		var p := cell_center(cells[i]) if list.size() > 1 else pos
+		list[i].give({"type": "move", "pos": p}, queued)
+
+
+func idle_villagers(pid: int) -> Array:
+	var out := []
+	for u in units:
+		if u.owner_id == pid and u.kind == "villager" and u.state == UnitScript.S.IDLE and u.cmd_queue.is_empty():
+			out.append(u)
+	return out
 
 
 # ---------------------------------------------------------------- Eingabe
@@ -1095,7 +1207,7 @@ func _process(delta: float) -> void:
 		return
 	_camera_move(delta)
 	var vs: Vector2 = get_viewport().get_visible_rect().size / camera.zoom
-	Sfx.view_rect = Rect2(camera.position - vs / 2.0, vs).grow(48.0)
+	Sfx.view_rect = Rect2(camera.position - vs / 2.0, vs).grow(96.0)
 	if game_over:
 		return
 	game_time += delta
@@ -1104,6 +1216,10 @@ func _process(delta: float) -> void:
 		fog_t = 0.25
 		_update_fog()
 	_separate_units(delta)
+	stump_t -= delta
+	if stump_t <= 0.0:
+		stump_t = 5.0
+		_expire_stumps()
 	check_t -= delta
 	if check_t <= 0.0:
 		check_t = 1.0
@@ -1128,7 +1244,7 @@ func _separate_units(delta: float) -> void:
 			grid[k].append(u)
 		else:
 			grid[k] = [u]
-	var max_step := 45.0 * delta
+	var max_step := 90.0 * delta
 	for u in units:
 		if u.is_anchored():
 			continue  # Arbeitende bleiben am Baum/Busch/Bauplatz verankert
@@ -1243,11 +1359,16 @@ func _camera_move(delta: float) -> void:
 		elif m.y > vs.y - 5:
 			dir.y += 1
 	camera.position += dir * 750.0 * Settings.cam_speed * (delta / maxf(0.01, Engine.time_scale)) / camera.zoom.x
-	camera.position = camera.position.clamp(Vector2.ZERO, Vector2(W * T, H * T + 60))
+	# Kamera so begrenzen, dass nie über den Kartenrand hinausgeschaut wird
+	var half := vs / camera.zoom / 2.0
+	var map_px := Vector2(W * T, H * T)
+	var hud_pad := 200.0 / camera.zoom.y
+	camera.position.x = clampf(camera.position.x, minf(half.x, map_px.x / 2.0), maxf(map_px.x - half.x, map_px.x / 2.0))
+	camera.position.y = clampf(camera.position.y, minf(half.y - 34.0 / camera.zoom.y, map_px.y / 2.0), maxf(map_px.y - half.y + hud_pad, map_px.y / 2.0))
 
 
 func _zoom(f: float) -> void:
-	var z := clampf(camera.zoom.x * f, 1.5, 7.0)
+	var z := clampf(camera.zoom.x * f, 0.75, 3.5)
 	camera.zoom = Vector2(z, z)
 
 
@@ -1312,7 +1433,7 @@ func _unhandled_input(event: InputEvent) -> void:
 						camera.position = b.center()
 						break
 			KEY_PERIOD:
-				_select_idle_villager()
+				select_idle_villager()
 			KEY_DELETE, KEY_BACKSPACE:
 				for e in selected.duplicate():
 					if valid(e) and e.owner_id == human:
@@ -1444,7 +1565,7 @@ func _finish_selection(a: Vector2, b: Vector2, add: bool) -> void:
 func _right_click(pos: Vector2) -> void:
 	var own := own_selected_units()
 	if not own.is_empty():
-		command_units(own, pos)
+		command_units(own, pos, Input.is_key_pressed(KEY_SHIFT))
 		spawn_fx("click", pos, Color(0.4, 1, 0.4))
 		Sfx.play("ack_" + players[human]["faction"])
 		return
@@ -1455,11 +1576,8 @@ func _right_click(pos: Vector2) -> void:
 			spawn_fx("click", pos, Color.WHITE)
 
 
-func _select_idle_villager() -> void:
-	var idle := []
-	for u in units:
-		if u.owner_id == human and u.kind == "villager" and u.state == UnitScript.S.IDLE:
-			idle.append(u)
+func select_idle_villager() -> void:
+	var idle := idle_villagers(human)
 	if idle.is_empty():
 		hud.message("Keine untätigen Arbeiter")
 		return
